@@ -14,10 +14,15 @@ from app.schemas import (
     CallbackTaskRead,
     CallbackTaskUpdate,
     IncidentRead,
+    IntegrationCatalogItemRead,
     IntegrationEventRead,
     PracticeRead,
+    PracticeIntegrationSettingRead,
+    PracticeIntegrationSettingUpdate,
     PracticeSettingsUpdate,
 )
+from app.services.integration_catalog import list_integration_capabilities
+from app.services.integration_settings import ensure_practice_integration_settings, upsert_practice_integration_setting
 from app.services.normalization import (
     extract_called_number,
     extract_message_type,
@@ -79,6 +84,19 @@ def _serialize_call(call: Call) -> CallRead:
 
 def _serialize_practice(practice: Practice) -> PracticeRead:
     return PracticeRead.model_validate(practice, from_attributes=True)
+
+
+def _serialize_integration_setting(setting) -> PracticeIntegrationSettingRead:
+    config = setting.config_json or {}
+    provider = config.get("provider") if isinstance(config.get("provider"), str) else setting.channel
+    return PracticeIntegrationSettingRead(
+        id=setting.id,
+        practice_id=setting.practice_id,
+        capability_key=setting.channel,
+        is_enabled=setting.is_enabled,
+        provider=provider,
+        config=config,
+    )
 
 
 @router.get("/health")
@@ -392,3 +410,41 @@ def update_practice_settings(
 def list_integration_events(db: Session = Depends(get_db)) -> list[IntegrationEventRead]:
     events = db.scalars(select(IntegrationEvent).order_by(desc(IntegrationEvent.created_at))).all()
     return [IntegrationEventRead.model_validate(event, from_attributes=True) for event in events]
+
+
+@router.get("/integrations/catalog", response_model=list[IntegrationCatalogItemRead])
+def get_integration_catalog() -> list[IntegrationCatalogItemRead]:
+    return [IntegrationCatalogItemRead(**item) for item in list_integration_capabilities()]
+
+
+@router.get("/practices/{practice_id}/integrations", response_model=list[PracticeIntegrationSettingRead])
+def list_practice_integrations(practice_id: str, db: Session = Depends(get_db)) -> list[PracticeIntegrationSettingRead]:
+    practice = db.get(Practice, practice_id)
+    if not practice:
+        raise HTTPException(status_code=404, detail="Practice not found.")
+    settings_rows = ensure_practice_integration_settings(db, practice)
+    return [_serialize_integration_setting(setting) for setting in settings_rows]
+
+
+@router.put("/practices/{practice_id}/integrations/{capability_key}", response_model=PracticeIntegrationSettingRead)
+def update_practice_integration(
+    practice_id: str,
+    capability_key: str,
+    payload: PracticeIntegrationSettingUpdate,
+    db: Session = Depends(get_db),
+) -> PracticeIntegrationSettingRead:
+    practice = db.get(Practice, practice_id)
+    if not practice:
+        raise HTTPException(status_code=404, detail="Practice not found.")
+    try:
+        setting = upsert_practice_integration_setting(
+            db,
+            practice,
+            capability_key,
+            is_enabled=payload.is_enabled,
+            provider=payload.provider,
+            config=payload.config,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _serialize_integration_setting(setting)

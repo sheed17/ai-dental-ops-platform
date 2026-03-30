@@ -103,6 +103,39 @@ def test_practice_settings_can_be_updated(client):
     assert updated["callback_sla_minutes"] == 30
 
 
+def test_integration_catalog_and_practice_settings_surface_connectors(client):
+    catalog = client.get("/api/v1/integrations/catalog")
+    assert catalog.status_code == 200
+    items = {item["key"]: item for item in catalog.json()}
+    assert items["sms"]["default_provider"] == "twilio_managed"
+    assert items["crm"]["supported_providers"][0] == "hubspot"
+
+    practice_id = client.get("/api/v1/practice-settings").json()[0]["id"]
+    settings_response = client.get(f"/api/v1/practices/{practice_id}/integrations")
+    assert settings_response.status_code == 200
+    settings = {item["capability_key"]: item for item in settings_response.json()}
+    assert settings["sms"]["provider"] == "twilio_managed"
+    assert settings["sms"]["is_enabled"] is True
+    assert settings["crm"]["provider"] == "generic_crm_stub"
+
+
+def test_practice_integration_can_be_updated_to_hubspot(client):
+    practice_id = client.get("/api/v1/practice-settings").json()[0]["id"]
+    response = client.put(
+        f"/api/v1/practices/{practice_id}/integrations/crm",
+        json={
+            "is_enabled": True,
+            "provider": "hubspot",
+            "config": {"pipeline_id": "pipeline_123", "location_id": "loc_001"},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "hubspot"
+    assert payload["config"]["pipeline_id"] == "pipeline_123"
+
+
 def test_end_of_call_uses_vapi_enrichment_for_recording(client, monkeypatch):
     from app.api import routes
 
@@ -129,6 +162,22 @@ def test_end_of_call_uses_vapi_enrichment_for_recording(client, monkeypatch):
     assert response.status_code == 200
     calls = client.get("/api/v1/calls").json()
     assert calls[0]["recording_url"] == "https://example.com/recording.wav"
+
+
+def test_sms_integration_event_uses_twilio_managed_provider(client):
+    response = client.post(
+        "/api/v1/telephony/missed-call",
+        json={
+            "calledNumber": "+12282832484",
+            "callerPhone": "+15125550000",
+            "callerName": "Missed Caller",
+        },
+    )
+
+    assert response.status_code == 200
+    events = client.get("/api/v1/integration-events").json()
+    sms_event = next(event for event in events if event["channel"] == "sms")
+    assert sms_event["status"] == "processed"
 
 
 def test_end_of_call_falls_back_to_vapi_customer_phone(client):

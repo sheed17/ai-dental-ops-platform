@@ -120,3 +120,28 @@ class DashboardSummary(BaseModel):
     recent_calls: list[CallRead]
     urgent_incidents: list[IncidentRead]
     open_callback_tasks: list[CallbackTaskRead]
+
+
+class IntegrationCatalogItemRead(BaseModel):
+    key: str
+    label: str
+    ownership: str
+    description: str
+    supported_providers: list[str]
+    default_provider: str
+    onboarding_fields: list[str]
+
+
+class PracticeIntegrationSettingRead(BaseModel):
+    id: str
+    practice_id: str
+    capability_key: str
+    is_enabled: bool
+    provider: str
+    config: dict[str, Any]
+
+
+class PracticeIntegrationSettingUpdate(BaseModel):
+    is_enabled: bool
+    provider: str
+    config: dict[str, Any] | None = None
