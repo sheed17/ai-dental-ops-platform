@@ -1,8 +1,14 @@
 from dataclasses import dataclass
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models import Practice, PracticePhoneNumber
+
 
 @dataclass(frozen=True)
-class PracticeConfig:
+class SeedPracticeConfig:
+    phone_number: str
     practice_name: str
     office_hours: str
     address: str
@@ -13,22 +19,10 @@ class PracticeConfig:
     same_day_emergency_policy: str
     languages: str
 
-    def to_vapi_variables(self) -> dict[str, str]:
-        return {
-            "practiceName": self.practice_name,
-            "officeHours": self.office_hours,
-            "address": self.address,
-            "website": self.website,
-            "emergencyNumber": self.emergency_number,
-            "servicesSummary": self.services_summary,
-            "insuranceSummary": self.insurance_summary,
-            "sameDayEmergencyPolicy": self.same_day_emergency_policy,
-            "languages": self.languages,
-        }
 
-
-PRACTICES_BY_PHONE: dict[str, PracticeConfig] = {
-    "+12282832484": PracticeConfig(
+SEED_PRACTICES: tuple[SeedPracticeConfig, ...] = (
+    SeedPracticeConfig(
+        phone_number="+12282832484",
         practice_name="Bright Smile Dental",
         office_hours="Monday through Friday, 8:00 AM to 5:00 PM",
         address="123 Main St, Austin, TX 78701",
@@ -39,7 +33,7 @@ PRACTICES_BY_PHONE: dict[str, PracticeConfig] = {
         same_day_emergency_policy="Same-day emergency appointments may be available depending on clinical review.",
         languages="English and Spanish",
     ),
-}
+)
 
 
 def normalize_phone_number(phone: str | None) -> str:
@@ -49,16 +43,59 @@ def normalize_phone_number(phone: str | None) -> str:
     digits = "".join(character for character in str(phone) if character.isdigit())
     if not digits:
         return ""
-
     if len(digits) == 11 and digits.startswith("1"):
         return f"+{digits}"
     if len(digits) == 10:
         return f"+1{digits}"
-    if phone.startswith("+"):
-        return phone
+    if str(phone).startswith("+"):
+        return str(phone)
     return f"+{digits}"
 
 
-def get_practice_by_phone(phone: str | None) -> tuple[str, PracticeConfig | None]:
+def seed_practices(db: Session) -> None:
+    for seed in SEED_PRACTICES:
+        existing_phone = db.scalar(select(PracticePhoneNumber).where(PracticePhoneNumber.phone_number == seed.phone_number))
+        if existing_phone:
+            continue
+
+        practice = Practice(
+            practice_name=seed.practice_name,
+            office_hours=seed.office_hours,
+            address=seed.address,
+            website=seed.website,
+            emergency_number=seed.emergency_number,
+            services_summary=seed.services_summary,
+            insurance_summary=seed.insurance_summary,
+            same_day_emergency_policy=seed.same_day_emergency_policy,
+            languages=seed.languages,
+        )
+        db.add(practice)
+        db.flush()
+        db.add(
+            PracticePhoneNumber(
+                practice_id=practice.id,
+                phone_number=seed.phone_number,
+                label="primary",
+                is_primary=True,
+            )
+        )
+
+    db.commit()
+
+
+def get_practice_by_phone(db: Session, phone: str | None) -> tuple[str, Practice | None]:
     normalized_phone = normalize_phone_number(phone)
-    return normalized_phone, PRACTICES_BY_PHONE.get(normalized_phone)
+    if not normalized_phone:
+        return "", None
+
+    stmt = (
+        select(Practice)
+        .join(PracticePhoneNumber, PracticePhoneNumber.practice_id == Practice.id)
+        .where(PracticePhoneNumber.phone_number == normalized_phone)
+    )
+    practice = db.scalar(stmt)
+    return normalized_phone, practice
+
+
+def get_default_practice(db: Session) -> Practice | None:
+    return db.scalar(select(Practice).limit(1))

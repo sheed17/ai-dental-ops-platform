@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <p><a href="/">← Back to dashboard</a></p>
+  <h2>{{ call.disposition }} call</h2>
+  <p><span class="pill {{ call.urgency }}">{{ call.urgency }}</span></p>
+  <p><strong>Caller:</strong> {{ call.caller_name or "Unknown" }}{% if call.caller_phone %} — {{ call.caller_phone }}{% endif %}</p>
+  <p><strong>Summary:</strong> {{ call.call_summary or "No summary available." }}</p>
+  <p><strong>Reason:</strong> {{ call.reason_for_call or "No reason captured." }}</p>
+  <p><strong>Message for staff:</strong> {{ call.message_for_staff or "No staff message captured." }}</p>
+  {% if call.recording_url %}
+  <p><strong>Recording:</strong> <a href="{{ call.recording_url }}" target="_blank" rel="noreferrer">Open recording</a></p>
+  {% endif %}
+</div>
+
+<div class="grid">
+  <section class="stack">
+    <div class="card">
+      <h3>Transcript</h3>
+      <pre>{{ call.transcript or "Transcript not available." }}</pre>
+    </div>
+    <div class="card">
+      <h3>Structured Outputs</h3>
+      <table>
+        <thead>
+          <tr><th>Field</th><th>Value</th></tr>
+        </thead>
+        <tbody>
+          {% for output in call.structured_outputs %}
+          <tr>
+            <td>{{ output.field_name }}</td>
+            <td>{{ output.value_text or output.value_bool or output.value_json }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="2">No structured outputs stored.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <aside class="stack">
+    <div class="card">
+      <h3>Incidents</h3>
+      {% for incident in call.incidents %}
+      <div>
+        <strong>{{ incident.incident_type }}</strong>
+        <div>{{ incident.summary }}</div>
+        <div>Status: {{ incident.status }}</div>
+      </div>
+      <hr />
+      {% else %}
+      <p>No incidents created.</p>
+      {% endfor %}
+    </div>
+    <div class="card">
+      <h3>Callback Tasks</h3>
+      {% for task in call.callback_tasks %}
+      <div>
+        <strong>{{ task.status }}</strong>
+        <div>{{ task.reason }}</div>
+        <div>{{ task.callback_phone or "No phone captured" }}</div>
+      </div>
+      <hr />
+      {% else %}
+      <p>No callback tasks created.</p>
+      {% endfor %}
+    </div>
+  </aside>
+</div>
+{% endblock %}

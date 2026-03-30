@@ -1,0 +1,90 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel
+
+
+class CallbackTaskUpdate(BaseModel):
+    status: str
+
+
+class CallArtifactRead(BaseModel):
+    id: str
+    artifact_type: str
+    url: str | None
+    metadata_json: dict[str, Any] | None
+
+
+class CallStructuredOutputRead(BaseModel):
+    id: str
+    field_name: str
+    value_text: str | None
+    value_bool: bool | None
+    value_json: dict[str, Any] | None
+
+
+class IncidentRead(BaseModel):
+    id: str
+    incident_type: str
+    severity: str
+    status: str
+    summary: str
+    details: str | None
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class CallbackTaskRead(BaseModel):
+    id: str
+    status: str
+    priority: str
+    callback_name: str | None
+    callback_phone: str | None
+    reason: str
+    due_note: str | None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
+
+
+class CallRead(BaseModel):
+    id: str
+    practice_id: str
+    vapi_call_id: str | None
+    caller_name: str | None
+    caller_phone: str | None
+    disposition: str
+    urgency: str
+    reason_for_call: str | None
+    message_for_staff: str | None
+    call_summary: str | None
+    needs_callback: bool
+    needs_incident: bool
+    review_status: str
+    transcript: str | None
+    recording_url: str | None
+    duration_seconds: int | None
+    ended_reason: str | None
+    created_at: datetime
+    incidents: list[IncidentRead]
+    callback_tasks: list[CallbackTaskRead]
+    artifacts: list[CallArtifactRead]
+    structured_outputs: list[CallStructuredOutputRead]
+
+
+class IntegrationEventRead(BaseModel):
+    id: str
+    channel: str
+    event_type: str
+    status: str
+    attempts: int
+    last_error: str | None
+    processed_at: datetime | None
+
+
+class DashboardSummary(BaseModel):
+    recent_calls: list[CallRead]
+    urgent_incidents: list[IncidentRead]
+    open_callback_tasks: list[CallbackTaskRead]

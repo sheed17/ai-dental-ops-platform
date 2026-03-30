@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="grid">
+  <section>
+    <div class="card">
+      <h2>Recent Calls</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Disposition</th>
+            <th>Urgency</th>
+            <th>Caller</th>
+            <th>Summary</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for call in recent_calls %}
+          <tr>
+            <td>{{ call.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+            <td><a href="/calls/{{ call.id }}">{{ call.disposition }}</a></td>
+            <td><span class="pill {{ call.urgency }}">{{ call.urgency }}</span></td>
+            <td>{{ call.caller_name or "Unknown" }}<br />{{ call.caller_phone or "No phone captured" }}</td>
+            <td>{{ call.call_summary or call.reason_for_call or "No summary available" }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5">No calls yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <aside class="stack">
+    <div class="card">
+      <h2>Urgent Incidents</h2>
+      {% for incident in urgent_incidents %}
+      <div>
+        <strong>{{ incident.incident_type }}</strong>
+        <div>{{ incident.summary }}</div>
+        <div><span class="pill {{ incident.severity }}">{{ incident.severity }}</span></div>
+        <form class="inline" method="post" action="/dashboard/incidents/{{ incident.id }}/resolve">
+          <button type="submit">Resolve</button>
+        </form>
+      </div>
+      <hr />
+      {% else %}
+      <p>No open urgent incidents.</p>
+      {% endfor %}
+    </div>
+    <div class="card">
+      <h2>Callback Queue</h2>
+      {% for task in callback_tasks %}
+      <div>
+        <strong>{{ task.callback_name or "Unknown caller" }}</strong>
+        <div>{{ task.reason }}</div>
+        <div>{{ task.callback_phone or "No phone captured" }}</div>
+        <form method="post" action="/dashboard/callback-tasks/{{ task.id }}/status">
+          <select name="status">
+            <option value="open" {% if task.status == "open" %}selected{% endif %}>open</option>
+            <option value="in_progress" {% if task.status == "in_progress" %}selected{% endif %}>in_progress</option>
+            <option value="completed" {% if task.status == "completed" %}selected{% endif %}>completed</option>
+            <option value="escalated" {% if task.status == "escalated" %}selected{% endif %}>escalated</option>
+            <option value="closed" {% if task.status == "closed" %}selected{% endif %}>closed</option>
+          </select>
+          <button type="submit">Update</button>
+        </form>
+      </div>
+      <hr />
+      {% else %}
+      <p>No callback tasks right now.</p>
+      {% endfor %}
+    </div>
+  </aside>
+</div>
+{% endblock %}

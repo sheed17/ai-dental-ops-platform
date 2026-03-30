@@ -5,9 +5,10 @@ FastAPI backend for a dental after-hours voice operations platform powered by Va
 ## What this does
 
 - Serves a Vapi assistant selector endpoint for inbound calls
-- Looks up practice config by called phone number
-- Returns assistant overrides with practice-specific variables
-- Provides a health check for Railway or local deployment
+- Stores completed calls, structured outputs, incidents, and callback tasks
+- Exposes JSON APIs for calls, incidents, callback tasks, and integration events
+- Renders a simple internal ops dashboard for staff review
+- Queues outbound integration events as a phase 2 foundation
 
 ## Local setup
 
@@ -23,11 +24,24 @@ uvicorn app.main:app --reload
 
 - `APP_ENV`
 - `PORT`
+- `DATABASE_URL`
 - `VAPI_BASE_ASSISTANT_ID`
+- `SEED_DEMO_DATA`
 
-## Routes
+## Core routes
 
-- `GET /health`
+- `GET /api/v1/health`
 - `POST /api/v1/vapi/assistant-request`
+- `POST /api/v1/vapi/end-of-call`
+- `GET /api/v1/calls`
+- `GET /api/v1/calls/{call_id}`
+- `GET /api/v1/callback-tasks`
+- `PATCH /api/v1/callback-tasks/{task_id}`
+- `GET /api/v1/incidents`
+- `POST /api/v1/incidents/{incident_id}/resolve`
+- `GET /api/v1/integration-events`
 
-# dental-receptionist
+## Dashboard routes
+
+- `GET /`
+- `GET /calls/{call_id}`
