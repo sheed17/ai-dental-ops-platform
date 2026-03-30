@@ -104,6 +104,18 @@ class CallRead(BaseModel):
     callback_tasks: list[CallbackTaskRead]
     artifacts: list[CallArtifactRead]
     structured_outputs: list[CallStructuredOutputRead]
+    repeat_caller_count: int = 0
+    recent_related_calls: list["CallListItemRead"] = []
+
+
+class CallListItemRead(BaseModel):
+    id: str
+    caller_name: str | None
+    caller_phone: str | None
+    disposition: str
+    urgency: str
+    call_summary: str | None
+    created_at: datetime
 
 
 class IntegrationEventRead(BaseModel):
@@ -122,6 +134,24 @@ class DashboardSummary(BaseModel):
     recent_calls: list[CallRead]
     urgent_incidents: list[IncidentRead]
     open_callback_tasks: list[CallbackTaskRead]
+    overdue_callback_tasks: list[CallbackTaskRead]
+    repeat_callers: list[CallListItemRead]
+    practices: list[PracticeRead]
+
+
+class OnboardingChecklistItemRead(BaseModel):
+    key: str
+    label: str
+    completed: bool
+    detail: str
+
+
+class OnboardingOverviewRead(BaseModel):
+    practice_id: str
+    practice_name: str
+    completed_steps: int
+    total_steps: int
+    checklist: list[OnboardingChecklistItemRead]
 
 
 class IntegrationCatalogItemRead(BaseModel):

@@ -10,6 +10,9 @@ export function TopNav() {
       <nav className="top-nav__links" aria-label="Primary">
         <Link href="/">Dashboard</Link>
         <Link href="/callbacks">Callback Queue</Link>
+        <Link href="/settings">Settings</Link>
+        <Link href="/integrations">Integrations</Link>
+        <Link href="/onboarding">Onboarding</Link>
       </nav>
     </header>
   );

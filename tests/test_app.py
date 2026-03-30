@@ -310,3 +310,68 @@ def test_process_pending_endpoint_processes_queued_events(client):
     response = client.post("/api/v1/integration-events/process-pending")
     assert response.status_code == 200
     assert "processed" in response.json()
+
+
+def test_dashboard_summary_includes_repeat_callers_and_overdue_tasks(client):
+    client.post(
+        "/api/v1/vapi/end-of-call",
+        json={
+            "message": {
+                "type": "end-of-call-report",
+                "call": {"id": "repeat_1", "phoneNumber": {"number": "+12282832484"}},
+                "customer": {"number": "+12098143953"},
+                "endedReason": "assistant ended call",
+            },
+            "analysis": {
+                "a": {"name": "call_disposition", "result": "appointment_request"},
+                "b": {"name": "urgency_level", "result": "routine"},
+                "c": {"name": "caller_name", "result": "Repeat Caller"},
+                "d": {"name": "call_summary", "result": "First call."},
+            },
+        },
+    )
+    client.post(
+        "/api/v1/vapi/end-of-call",
+        json={
+            "message": {
+                "type": "end-of-call-report",
+                "call": {"id": "repeat_2", "phoneNumber": {"number": "+12282832484"}},
+                "customer": {"number": "+12098143953"},
+                "endedReason": "assistant ended call",
+            },
+            "analysis": {
+                "a": {"name": "call_disposition", "result": "general_message"},
+                "b": {"name": "urgency_level", "result": "routine"},
+                "c": {"name": "caller_name", "result": "Repeat Caller"},
+                "d": {"name": "call_summary", "result": "Second call."},
+            },
+        },
+    )
+
+    from app.db import SessionLocal
+    from app.models import CallbackTask
+    from datetime import datetime, timedelta, timezone
+
+    db = SessionLocal()
+    try:
+        task = db.query(CallbackTask).first()
+        task.created_at = datetime.now(timezone.utc) - timedelta(hours=2)
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get("/api/v1/dashboard/summary")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["repeat_callers"]) >= 1
+    assert len(payload["overdue_callback_tasks"]) >= 1
+
+
+def test_onboarding_overview_returns_checklist(client):
+    practice_id = client.get("/api/v1/practice-settings").json()[0]["id"]
+    response = client.get(f"/api/v1/practices/{practice_id}/onboarding")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["practice_id"] == practice_id
+    assert payload["total_steps"] >= 1
+    assert len(payload["checklist"]) == payload["total_steps"]

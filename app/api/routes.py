@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
@@ -11,11 +12,15 @@ from app.db import get_db
 from app.models import Call, CallArtifact, CallStructuredOutput, CallbackTask, Incident, IntegrationEvent, Practice
 from app.schemas import (
     CallRead,
+    CallListItemRead,
     CallbackTaskRead,
     CallbackTaskUpdate,
+    DashboardSummary,
     IncidentRead,
     IntegrationCatalogItemRead,
     IntegrationEventRead,
+    OnboardingChecklistItemRead,
+    OnboardingOverviewRead,
     PracticeRead,
     PracticeIntegrationSettingRead,
     PracticeIntegrationSettingUpdate,
@@ -55,6 +60,24 @@ def verify_vapi_webhook(
 
 
 def _serialize_call(call: Call) -> CallRead:
+    related_calls: list[CallListItemRead] = []
+    repeat_caller_count = 0
+    if call.caller_phone:
+        related_calls = [
+            CallListItemRead(
+                id=related.id,
+                caller_name=related.caller_name,
+                caller_phone=related.caller_phone,
+                disposition=related.disposition,
+                urgency=related.urgency,
+                call_summary=related.call_summary,
+                created_at=related.created_at,
+            )
+            for related in getattr(call, "related_calls", [])[:5]
+            if related.id != call.id
+        ]
+        repeat_caller_count = max(0, len(getattr(call, "related_calls", [])) - 1)
+
     return CallRead(
         id=call.id,
         practice_id=call.practice_id,
@@ -95,6 +118,8 @@ def _serialize_call(call: Call) -> CallRead:
             }
             for output in call.structured_outputs
         ],
+        repeat_caller_count=repeat_caller_count,
+        recent_related_calls=related_calls,
     )
 
 
@@ -112,6 +137,116 @@ def _serialize_integration_setting(setting) -> PracticeIntegrationSettingRead:
         is_enabled=setting.is_enabled,
         provider=provider,
         config=config,
+    )
+
+
+def _serialize_call_list_item(call: Call) -> CallListItemRead:
+    return CallListItemRead(
+        id=call.id,
+        caller_name=call.caller_name,
+        caller_phone=call.caller_phone,
+        disposition=call.disposition,
+        urgency=call.urgency,
+        call_summary=call.call_summary,
+        created_at=call.created_at,
+    )
+
+
+def _overdue_tasks(db: Session) -> list[CallbackTask]:
+    tasks = db.scalars(select(CallbackTask).where(CallbackTask.status != "completed").order_by(desc(CallbackTask.created_at))).all()
+    practices = {practice.id: practice for practice in db.scalars(select(Practice)).all()}
+    now = datetime.now(timezone.utc)
+    overdue: list[CallbackTask] = []
+    for task in tasks:
+        practice = practices.get(task.practice_id)
+        if not practice:
+            continue
+        created_at = task.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        if created_at + timedelta(minutes=practice.callback_sla_minutes) <= now:
+            overdue.append(task)
+    return overdue
+
+
+def _repeat_callers(db: Session, limit: int = 5) -> list[Call]:
+    repeated_numbers = db.execute(
+        select(Call.caller_phone)
+        .where(Call.caller_phone.is_not(None))
+        .group_by(Call.caller_phone)
+        .having(func.count(Call.id) > 1)
+        .limit(limit)
+    ).scalars().all()
+    if not repeated_numbers:
+        return []
+
+    calls: list[Call] = []
+    for number in repeated_numbers:
+        latest_call = db.scalar(
+            select(Call)
+            .where(Call.caller_phone == number)
+            .order_by(desc(Call.created_at))
+            .limit(1)
+        )
+        if latest_call:
+            calls.append(latest_call)
+    return calls
+
+
+def _build_onboarding_overview(db: Session, practice: Practice) -> OnboardingOverviewRead:
+    integration_settings = ensure_practice_integration_settings(db, practice)
+    integration_map = {setting.channel: setting for setting in integration_settings}
+
+    def enabled(channel: str) -> bool:
+        setting = integration_map.get(channel)
+        return bool(setting and setting.is_enabled)
+
+    checklist = [
+        OnboardingChecklistItemRead(
+            key="practice_profile",
+            label="Practice profile completed",
+            completed=all(
+                [
+                    practice.practice_name,
+                    practice.office_hours,
+                    practice.address,
+                    practice.emergency_number,
+                ]
+            ),
+            detail="Basic practice identity, hours, address, and emergency handling are filled in.",
+        ),
+        OnboardingChecklistItemRead(
+            key="workflow_modes",
+            label="Office workflow modes chosen",
+            completed=bool(practice.scheduling_mode and practice.insurance_mode),
+            detail="Scheduling mode, insurance mode, and callback SLA are configured.",
+        ),
+        OnboardingChecklistItemRead(
+            key="messaging",
+            label="Platform messaging configured",
+            completed=enabled("sms"),
+            detail="Twilio-managed messaging is enabled for missed-call recovery and callback texts.",
+        ),
+        OnboardingChecklistItemRead(
+            key="crm",
+            label="CRM connection configured",
+            completed=enabled("crm"),
+            detail="A CRM provider is connected so leads and callback workflows can sync outward.",
+        ),
+        OnboardingChecklistItemRead(
+            key="alerts",
+            label="Urgent alerting configured",
+            completed=enabled("internal_alert"),
+            detail="Internal alert workflow is enabled for urgent incidents and escalations.",
+        ),
+    ]
+    completed_steps = sum(1 for item in checklist if item.completed)
+    return OnboardingOverviewRead(
+        practice_id=practice.id,
+        practice_name=practice.practice_name,
+        completed_steps=completed_steps,
+        total_steps=len(checklist),
+        checklist=checklist,
     )
 
 
@@ -355,6 +490,17 @@ def get_call(call_id: str, db: Session = Depends(get_db)) -> CallRead:
     )
     if not call:
         raise HTTPException(status_code=404, detail="Call not found.")
+    if call.caller_phone:
+        call.related_calls = db.scalars(  # type: ignore[attr-defined]
+            select(Call)
+            .where(
+                Call.caller_phone == call.caller_phone,
+                Call.id != call.id,
+            )
+            .order_by(desc(Call.created_at))
+            .limit(5)
+        ).all()
+        call.related_calls.insert(0, call)  # type: ignore[attr-defined]
     return _serialize_call(call)
 
 
@@ -433,6 +579,37 @@ def list_integration_events(db: Session = Depends(get_db)) -> list[IntegrationEv
     return [IntegrationEventRead.model_validate(event, from_attributes=True) for event in events]
 
 
+@router.get("/dashboard/summary", response_model=DashboardSummary)
+def dashboard_summary(db: Session = Depends(get_db)) -> DashboardSummary:
+    recent_calls = db.scalars(
+        select(Call)
+        .options(
+            selectinload(Call.incidents),
+            selectinload(Call.callback_tasks),
+            selectinload(Call.artifacts),
+            selectinload(Call.structured_outputs),
+        )
+        .order_by(desc(Call.created_at))
+        .limit(10)
+    ).all()
+    urgent_incidents = db.scalars(select(Incident).where(Incident.status == "open").order_by(desc(Incident.created_at)).limit(8)).all()
+    open_callback_tasks = db.scalars(
+        select(CallbackTask).where(CallbackTask.status != "completed").order_by(desc(CallbackTask.created_at)).limit(12)
+    ).all()
+    overdue_callback_tasks = _overdue_tasks(db)[:8]
+    repeat_callers = _repeat_callers(db, limit=5)
+    practices = db.scalars(select(Practice).order_by(Practice.practice_name)).all()
+
+    return DashboardSummary(
+        recent_calls=[_serialize_call(call) for call in recent_calls],
+        urgent_incidents=[IncidentRead.model_validate(incident, from_attributes=True) for incident in urgent_incidents],
+        open_callback_tasks=[CallbackTaskRead.model_validate(task, from_attributes=True) for task in open_callback_tasks],
+        overdue_callback_tasks=[CallbackTaskRead.model_validate(task, from_attributes=True) for task in overdue_callback_tasks],
+        repeat_callers=[_serialize_call_list_item(call) for call in repeat_callers],
+        practices=[_serialize_practice(practice) for practice in practices],
+    )
+
+
 @router.post("/integration-events/process-pending")
 def process_pending_events(limit: int = 50) -> dict[str, int]:
     from app.services.workflow import process_pending_integration_events
@@ -477,3 +654,11 @@ def update_practice_integration(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _serialize_integration_setting(setting)
+
+
+@router.get("/practices/{practice_id}/onboarding", response_model=OnboardingOverviewRead)
+def get_onboarding_overview(practice_id: str, db: Session = Depends(get_db)) -> OnboardingOverviewRead:
+    practice = db.get(Practice, practice_id)
+    if not practice:
+        raise HTTPException(status_code=404, detail="Practice not found.")
+    return _build_onboarding_overview(db, practice)
