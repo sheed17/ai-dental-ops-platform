@@ -21,6 +21,7 @@ from app.schemas import (
 from app.services.normalization import (
     extract_called_number,
     extract_message_type,
+    is_final_vapi_call_payload,
     merge_webhook_with_enrichment,
     normalize_vapi_end_of_call,
 )
@@ -138,6 +139,13 @@ def vapi_end_of_call(
         raise HTTPException(status_code=404, detail=f"No practice found for number: {called_number or 'unknown'}")
 
     enriched_payload = fetch_call_details(payload.get("message", {}).get("call", {}).get("id") if isinstance(payload.get("message"), dict) else None)
+    if not is_final_vapi_call_payload(payload, enriched_payload):
+        return {
+            "status": "ignored",
+            "reason": "non-final-call-event",
+            "callId": payload.get("message", {}).get("call", {}).get("id") if isinstance(payload.get("message"), dict) else None,
+        }
+
     normalized = normalize_vapi_end_of_call(merge_webhook_with_enrichment(payload, enriched_payload))
 
     existing_call = None

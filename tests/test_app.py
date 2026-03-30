@@ -129,3 +129,22 @@ def test_end_of_call_uses_vapi_enrichment_for_recording(client, monkeypatch):
     assert response.status_code == 200
     calls = client.get("/api/v1/calls").json()
     assert calls[0]["recording_url"] == "https://example.com/recording.wav"
+
+
+def test_non_final_vapi_event_is_ignored(client):
+    response = client.post(
+        "/api/v1/vapi/end-of-call",
+        json={
+            "message": {
+                "type": "status-update",
+                "call": {"id": "call_in_progress", "phoneNumber": {"number": "+12282832484"}},
+                "status": "in-progress",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ignored"
+
+    calls = client.get("/api/v1/calls").json()
+    assert calls == []

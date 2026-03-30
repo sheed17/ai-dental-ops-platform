@@ -136,6 +136,37 @@ def extract_ended_reason(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def is_final_vapi_call_payload(payload: dict[str, Any], enriched_payload: dict[str, Any] | None = None) -> bool:
+    candidates: list[str] = []
+
+    for source in (payload, enriched_payload or {}):
+        ended_reason = extract_ended_reason(source)
+        if ended_reason:
+            candidates.append(ended_reason.lower())
+
+        message = source.get("message")
+        if isinstance(message, dict):
+            message_type = message.get("type")
+            if isinstance(message_type, str):
+                candidates.append(message_type.lower())
+
+    if any(value in {"assistant ended call", "customer ended call", "assistant-ended-call", "customer-ended-call"} for value in candidates):
+        return True
+
+    if any("end-of-call" in value or "completed" in value for value in candidates):
+        return True
+
+    if any(value in {"in-progress", "queued", "ringing", "status-update", "assistant-request"} for value in candidates):
+        return False
+
+    merged_payload = merge_webhook_with_enrichment(payload, enriched_payload)
+    outputs = extract_structured_outputs(merged_payload)
+    transcript = extract_transcript(merged_payload)
+    recording_url = extract_recording_url(merged_payload)
+
+    return bool(outputs or transcript or recording_url)
+
+
 @dataclass
 class CanonicalCallData:
     vapi_call_id: str | None
