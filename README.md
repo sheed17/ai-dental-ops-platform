@@ -57,3 +57,15 @@ uvicorn app.main:app --reload
 
 - `GET /`
 - `GET /calls/{call_id}`
+
+## GitHub Pages legal docs
+
+This repo includes public legal pages under [`docs/`](/Users/sammyfammy/Downloads/dental-ops-platform/docs):
+
+- [`docs/privacy.html`](/Users/sammyfammy/Downloads/dental-ops-platform/docs/privacy.html)
+- [`docs/terms.html`](/Users/sammyfammy/Downloads/dental-ops-platform/docs/terms.html)
+
+If you enable GitHub Pages from the `docs/` folder on the `main` branch, the public URLs will be:
+
+- `https://sheed17.github.io/dental-receptionist/privacy.html`
+- `https://sheed17.github.io/dental-receptionist/terms.html`
