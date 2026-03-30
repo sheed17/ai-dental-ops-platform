@@ -56,3 +56,48 @@ def test_end_of_call_creates_call_incident_and_callback(client):
     assert calls[0]["urgency"] == "urgent"
     assert calls[0]["callback_tasks"][0]["status"] == "open"
     assert calls[0]["incidents"][0]["status"] == "open"
+
+
+def test_missed_call_recovery_creates_callback_and_sms_event(client):
+    response = client.post(
+        "/api/v1/telephony/missed-call",
+        json={
+            "calledNumber": "+12282832484",
+            "callerPhone": "+15125550000",
+            "callerName": "Missed Caller",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "stored"
+
+    tasks = client.get("/api/v1/callback-tasks").json()
+    assert len(tasks) == 1
+    assert tasks[0]["reason"] == "Missed call recovery"
+
+    events = client.get("/api/v1/integration-events").json()
+    assert len(events) >= 1
+    assert events[0]["channel"] == "sms"
+
+
+def test_practice_settings_can_be_updated(client):
+    practices = client.get("/api/v1/practice-settings").json()
+    practice_id = practices[0]["id"]
+
+    response = client.patch(
+        f"/api/v1/practice-settings/{practice_id}",
+        json={
+            "scheduling_mode": "availability_assist",
+            "insurance_mode": "plan_lookup",
+            "missed_call_recovery_enabled": True,
+            "missed_call_recovery_message": "We saw your missed call.",
+            "callback_sla_minutes": 30,
+        },
+    )
+
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["scheduling_mode"] == "availability_assist"
+    assert updated["insurance_mode"] == "plan_lookup"
+    assert updated["callback_sla_minutes"] == 30

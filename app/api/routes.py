@@ -8,8 +8,16 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.db import get_db
-from app.models import Call, CallArtifact, CallStructuredOutput, CallbackTask, Incident, IntegrationEvent
-from app.schemas import CallRead, CallbackTaskRead, CallbackTaskUpdate, IncidentRead, IntegrationEventRead
+from app.models import Call, CallArtifact, CallStructuredOutput, CallbackTask, Incident, IntegrationEvent, Practice
+from app.schemas import (
+    CallRead,
+    CallbackTaskRead,
+    CallbackTaskUpdate,
+    IncidentRead,
+    IntegrationEventRead,
+    PracticeRead,
+    PracticeSettingsUpdate,
+)
 from app.services.normalization import extract_called_number, extract_message_type, normalize_vapi_end_of_call
 from app.services.practice_directory import get_default_practice, get_practice_by_phone
 from app.services.workflow import create_operational_records, process_integration_events_async
@@ -62,6 +70,10 @@ def _serialize_call(call: Call) -> CallRead:
     )
 
 
+def _serialize_practice(practice: Practice) -> PracticeRead:
+    return PracticeRead.model_validate(practice, from_attributes=True)
+
+
 @router.get("/health")
 def healthcheck() -> dict[str, str]:
     return {"status": "ok", "environment": settings.app_env}
@@ -96,6 +108,8 @@ def vapi_assistant_request(payload: dict[str, Any], db: Session = Depends(get_db
                 "insuranceSummary": practice.insurance_summary,
                 "sameDayEmergencyPolicy": practice.same_day_emergency_policy,
                 "languages": practice.languages,
+                "schedulingMode": practice.scheduling_mode,
+                "insuranceMode": practice.insurance_mode,
             },
         },
     }
@@ -179,6 +193,77 @@ def vapi_end_of_call(
     }
 
 
+@router.post("/telephony/missed-call")
+def missed_call_recovery(
+    payload: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    called_number, practice = get_practice_by_phone(db, payload.get("calledNumber"))
+    if not practice:
+        practice = get_default_practice(db)
+    if not practice:
+        raise HTTPException(status_code=404, detail=f"No practice found for number: {called_number or 'unknown'}")
+
+    caller_phone = payload.get("callerPhone")
+    if not isinstance(caller_phone, str):
+        raise HTTPException(status_code=400, detail="callerPhone is required for missed call recovery.")
+
+    call = Call(
+        practice_id=practice.id,
+        caller_phone=caller_phone,
+        caller_name=payload.get("callerName"),
+        disposition="missed_call",
+        urgency="routine",
+        reason_for_call="Missed call recovery",
+        message_for_staff="Inbound call was missed during business hours.",
+        call_summary="Missed call created a callback task for staff follow-up.",
+        needs_callback=True,
+        needs_incident=False,
+        review_status="new",
+        raw_payload=payload,
+    )
+    db.add(call)
+    db.flush()
+
+    task = CallbackTask(
+        practice_id=practice.id,
+        call_id=call.id,
+        status="open",
+        priority="normal",
+        callback_name=payload.get("callerName"),
+        callback_phone=caller_phone,
+        reason="Missed call recovery",
+        due_note=f"Return the missed call within {practice.callback_sla_minutes} minutes.",
+    )
+    db.add(task)
+    db.flush()
+
+    event_ids: list[str] = []
+    if practice.missed_call_recovery_enabled:
+        event = IntegrationEvent(
+            practice_id=practice.id,
+            call_id=call.id,
+            callback_task_id=task.id,
+            channel="sms",
+            event_type="missed_call_recovery_sms",
+            status="queued",
+            payload={
+                "to": caller_phone,
+                "message": (practice.missed_call_recovery_message or "").replace("{{practiceName}}", practice.practice_name),
+            },
+        )
+        db.add(event)
+        db.flush()
+        event_ids.append(event.id)
+
+    db.commit()
+    if event_ids:
+        background_tasks.add_task(process_integration_events_async, event_ids)
+
+    return {"status": "stored", "callId": call.id, "callbackTaskId": task.id, "integrationEventCount": len(event_ids)}
+
+
 @router.get("/calls", response_model=list[CallRead])
 def list_calls(db: Session = Depends(get_db)) -> list[CallRead]:
     calls = db.scalars(
@@ -223,6 +308,9 @@ def update_callback_task(task_id: str, payload: CallbackTaskUpdate, db: Session 
     if not task:
         raise HTTPException(status_code=404, detail="Callback task not found.")
     task.status = payload.status
+    task.assigned_to = payload.assigned_to
+    task.internal_notes = payload.internal_notes
+    task.outcome = payload.outcome
     if payload.status == "completed":
         from datetime import datetime, timezone
 
@@ -250,6 +338,31 @@ def resolve_incident(incident_id: str, db: Session = Depends(get_db)) -> Inciden
     db.commit()
     db.refresh(incident)
     return IncidentRead.model_validate(incident, from_attributes=True)
+
+
+@router.get("/practice-settings", response_model=list[PracticeRead])
+def list_practice_settings(db: Session = Depends(get_db)) -> list[PracticeRead]:
+    practices = db.scalars(select(Practice).order_by(Practice.practice_name)).all()
+    return [_serialize_practice(practice) for practice in practices]
+
+
+@router.patch("/practice-settings/{practice_id}", response_model=PracticeRead)
+def update_practice_settings(
+    practice_id: str,
+    payload: PracticeSettingsUpdate,
+    db: Session = Depends(get_db),
+) -> PracticeRead:
+    practice = db.get(Practice, practice_id)
+    if not practice:
+        raise HTTPException(status_code=404, detail="Practice not found.")
+    practice.scheduling_mode = payload.scheduling_mode
+    practice.insurance_mode = payload.insurance_mode
+    practice.missed_call_recovery_enabled = payload.missed_call_recovery_enabled
+    practice.missed_call_recovery_message = payload.missed_call_recovery_message
+    practice.callback_sla_minutes = payload.callback_sla_minutes
+    db.commit()
+    db.refresh(practice)
+    return _serialize_practice(practice)
 
 
 @router.get("/integration-events", response_model=list[IntegrationEventRead])

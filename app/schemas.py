@@ -8,6 +8,35 @@ from pydantic import BaseModel
 
 class CallbackTaskUpdate(BaseModel):
     status: str
+    assigned_to: str | None = None
+    internal_notes: str | None = None
+    outcome: str | None = None
+
+
+class PracticeSettingsUpdate(BaseModel):
+    scheduling_mode: str
+    insurance_mode: str
+    missed_call_recovery_enabled: bool
+    missed_call_recovery_message: str | None = None
+    callback_sla_minutes: int
+
+
+class PracticeRead(BaseModel):
+    id: str
+    practice_name: str
+    office_hours: str
+    address: str
+    website: str
+    emergency_number: str
+    services_summary: str
+    insurance_summary: str
+    same_day_emergency_policy: str
+    languages: str
+    scheduling_mode: str
+    insurance_mode: str
+    missed_call_recovery_enabled: bool
+    missed_call_recovery_message: str | None
+    callback_sla_minutes: int
 
 
 class CallArtifactRead(BaseModel):
@@ -44,6 +73,9 @@ class CallbackTaskRead(BaseModel):
     callback_phone: str | None
     reason: str
     due_note: str | None
+    assigned_to: str | None
+    internal_notes: str | None
+    outcome: str | None
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None

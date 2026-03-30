@@ -12,6 +12,7 @@
             <th>Urgency</th>
             <th>Caller</th>
             <th>Summary</th>
+            <th>Recording</th>
           </tr>
         </thead>
         <tbody>
@@ -22,12 +23,84 @@
             <td><span class="pill {{ call.urgency }}">{{ call.urgency }}</span></td>
             <td>{{ call.caller_name or "Unknown" }}<br />{{ call.caller_phone or "No phone captured" }}</td>
             <td>{{ call.call_summary or call.reason_for_call or "No summary available" }}</td>
+            <td>
+              {% if call.recording_url %}
+              <audio controls preload="none" style="max-width: 220px;">
+                <source src="{{ call.recording_url }}" />
+                Your browser does not support audio playback.
+              </audio>
+              {% else %}
+              No recording
+              {% endif %}
+            </td>
           </tr>
           {% else %}
-          <tr><td colspan="5">No calls yet.</td></tr>
+          <tr><td colspan="6">No calls yet.</td></tr>
           {% endfor %}
         </tbody>
       </table>
+    </div>
+    <div class="card">
+      <h2>Missed Call Recovery</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Caller</th>
+            <th>Status</th>
+            <th>Summary</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for call in missed_calls %}
+          <tr>
+            <td>{{ call.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+            <td>{{ call.caller_name or "Unknown" }}<br />{{ call.caller_phone or "No phone captured" }}</td>
+            <td>{{ call.review_status }}</td>
+            <td>{{ call.call_summary or "Missed call recovery task created." }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4">No missed call recovery items yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Practice Settings</h2>
+      {% for practice in practices %}
+      <form method="post" action="/dashboard/practice-settings/{{ practice.id }}" style="margin-bottom: 20px;">
+        <h3>{{ practice.practice_name }}</h3>
+        <label>Scheduling mode</label><br />
+        <select name="scheduling_mode">
+          <option value="message_only" {% if practice.scheduling_mode == "message_only" %}selected{% endif %}>message_only</option>
+          <option value="availability_assist" {% if practice.scheduling_mode == "availability_assist" %}selected{% endif %}>availability_assist</option>
+          <option value="full_scheduling" {% if practice.scheduling_mode == "full_scheduling" %}selected{% endif %}>full_scheduling</option>
+        </select><br /><br />
+
+        <label>Insurance mode</label><br />
+        <select name="insurance_mode">
+          <option value="generic" {% if practice.insurance_mode == "generic" %}selected{% endif %}>generic</option>
+          <option value="plan_lookup" {% if practice.insurance_mode == "plan_lookup" %}selected{% endif %}>plan_lookup</option>
+          <option value="eligibility_check" {% if practice.insurance_mode == "eligibility_check" %}selected{% endif %}>eligibility_check</option>
+        </select><br /><br />
+
+        <label>
+          <input type="checkbox" name="missed_call_recovery_enabled" {% if practice.missed_call_recovery_enabled %}checked{% endif %} />
+          Enable missed call recovery SMS
+        </label><br /><br />
+
+        <label>Missed call recovery message</label><br />
+        <textarea name="missed_call_recovery_message" rows="3" style="width: 100%;">{{ practice.missed_call_recovery_message or "" }}</textarea><br /><br />
+
+        <label>Callback SLA minutes</label><br />
+        <input type="number" name="callback_sla_minutes" value="{{ practice.callback_sla_minutes }}" min="5" /><br /><br />
+
+        <button type="submit">Save Settings</button>
+      </form>
+      {% if not loop.last %}<hr />{% endif %}
+      {% else %}
+      <p>No practices configured.</p>
+      {% endfor %}
     </div>
   </section>
   <aside class="stack">
@@ -54,6 +127,8 @@
         <strong>{{ task.callback_name or "Unknown caller" }}</strong>
         <div>{{ task.reason }}</div>
         <div>{{ task.callback_phone or "No phone captured" }}</div>
+        {% if task.assigned_to %}<div>Assigned to: {{ task.assigned_to }}</div>{% endif %}
+        {% if task.internal_notes %}<div>Notes: {{ task.internal_notes }}</div>{% endif %}
         <form method="post" action="/dashboard/callback-tasks/{{ task.id }}/status">
           <select name="status">
             <option value="open" {% if task.status == "open" %}selected{% endif %}>open</option>
@@ -62,6 +137,9 @@
             <option value="escalated" {% if task.status == "escalated" %}selected{% endif %}>escalated</option>
             <option value="closed" {% if task.status == "closed" %}selected{% endif %}>closed</option>
           </select>
+          <input type="text" name="assigned_to" placeholder="Assign to" value="{{ task.assigned_to or '' }}" />
+          <input type="text" name="outcome" placeholder="Outcome" value="{{ task.outcome or '' }}" />
+          <textarea name="internal_notes" rows="2" style="width: 100%; margin-top: 8px;" placeholder="Internal notes">{{ task.internal_notes or '' }}</textarea>
           <button type="submit">Update</button>
         </form>
       </div>

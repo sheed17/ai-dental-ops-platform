@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models import Call, CallbackTask, Incident, IntegrationEvent, Practice
+from app.services.integrations import process_integration_event
 from app.services.normalization import CanonicalCallData
 
 
@@ -137,7 +138,13 @@ def process_integration_events_async(event_ids: Iterable[str]) -> None:
             if not event or event.status not in {"queued", "retry"}:
                 continue
             event.attempts += 1
-            event.status = "processed"
+            result = process_integration_event(db, event)
+            event.status = result.get("status", "processed")
+            if event.status == "failed":
+                event.last_error = result.get("message")
+            else:
+                event.last_error = None
+            event.payload = {**(event.payload or {}), "adapterResult": result}
             event.processed_at = datetime.now(timezone.utc)
         db.commit()
     finally:

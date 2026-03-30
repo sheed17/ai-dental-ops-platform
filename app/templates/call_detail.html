@@ -10,11 +10,26 @@
   <p><strong>Message for staff:</strong> {{ call.message_for_staff or "No staff message captured." }}</p>
   {% if call.recording_url %}
   <p><strong>Recording:</strong> <a href="{{ call.recording_url }}" target="_blank" rel="noreferrer">Open recording</a></p>
+  <audio controls preload="metadata" style="width: 100%; max-width: 720px;">
+    <source src="{{ call.recording_url }}" />
+    Your browser does not support audio playback.
+  </audio>
   {% endif %}
 </div>
 
 <div class="grid">
   <section class="stack">
+    <div class="card">
+      <h3>Recording</h3>
+      {% if call.recording_url %}
+      <audio controls preload="metadata" style="width: 100%;">
+        <source src="{{ call.recording_url }}" />
+        Your browser does not support audio playback.
+      </audio>
+      {% else %}
+      <p>No recording URL stored for this call yet.</p>
+      {% endif %}
+    </div>
     <div class="card">
       <h3>Transcript</h3>
       <pre>{{ call.transcript or "Transcript not available." }}</pre>

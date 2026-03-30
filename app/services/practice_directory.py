@@ -18,6 +18,11 @@ class SeedPracticeConfig:
     insurance_summary: str
     same_day_emergency_policy: str
     languages: str
+    scheduling_mode: str = "message_only"
+    insurance_mode: str = "generic"
+    missed_call_recovery_enabled: bool = True
+    missed_call_recovery_message: str = "Thanks for calling {{practiceName}}. We missed your call and will follow up when the office opens."
+    callback_sla_minutes: int = 60
 
 
 SEED_PRACTICES: tuple[SeedPracticeConfig, ...] = (
@@ -32,6 +37,11 @@ SEED_PRACTICES: tuple[SeedPracticeConfig, ...] = (
         insurance_summary="We accept most major PPO plans. Coverage details must be confirmed by the office.",
         same_day_emergency_policy="Same-day emergency appointments may be available depending on clinical review.",
         languages="English and Spanish",
+        scheduling_mode="message_only",
+        insurance_mode="generic",
+        missed_call_recovery_enabled=True,
+        missed_call_recovery_message="Thanks for calling {{practiceName}}. We missed your call and will follow up when the office opens.",
+        callback_sla_minutes=60,
     ),
 )
 
@@ -68,6 +78,11 @@ def seed_practices(db: Session) -> None:
             insurance_summary=seed.insurance_summary,
             same_day_emergency_policy=seed.same_day_emergency_policy,
             languages=seed.languages,
+            scheduling_mode=seed.scheduling_mode,
+            insurance_mode=seed.insurance_mode,
+            missed_call_recovery_enabled=seed.missed_call_recovery_enabled,
+            missed_call_recovery_message=seed.missed_call_recovery_message,
+            callback_sla_minutes=seed.callback_sla_minutes,
         )
         db.add(practice)
         db.flush()

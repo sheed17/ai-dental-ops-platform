@@ -26,6 +26,15 @@ class Practice(Base):
     insurance_summary: Mapped[str] = mapped_column(Text)
     same_day_emergency_policy: Mapped[str] = mapped_column(Text)
     languages: Mapped[str] = mapped_column(Text)
+    scheduling_mode: Mapped[str] = mapped_column(String(50), default="message_only")
+    insurance_mode: Mapped[str] = mapped_column(String(50), default="generic")
+    missed_call_recovery_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    missed_call_recovery_message: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        default="Thanks for calling {{practiceName}}. We missed your call and will follow up when the office opens.",
+    )
+    callback_sla_minutes: Mapped[int] = mapped_column(Integer, default=60)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     phone_numbers: Mapped[list[PracticePhoneNumber]] = relationship(back_populates="practice", cascade="all, delete-orphan")
@@ -141,6 +150,9 @@ class CallbackTask(Base):
     callback_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
     reason: Mapped[str] = mapped_column(Text)
     due_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assigned_to: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    internal_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    outcome: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
