@@ -42,6 +42,36 @@ def extract_called_number(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def extract_customer_phone(payload: dict[str, Any]) -> str | None:
+    paths = (
+        ("message", "customer", "number"),
+        ("customer", "number"),
+        ("customer", "phoneNumber"),
+        ("phoneCallProviderDetails", "customerNumber"),
+        ("call", "customer", "number"),
+        ("call", "customerNumber"),
+        ("call", "phoneCallProviderDetails", "customerNumber"),
+        ("call", "transport", "customerNumber"),
+    )
+    for path in paths:
+        current: Any = payload
+        for key in path:
+            if isinstance(current, dict):
+                current = current.get(key)
+            else:
+                current = None
+                break
+        if isinstance(current, str):
+            return current
+
+    for node in _walk(payload):
+        for key in ("customerNumber", "from", "fromNumber"):
+            value = node.get(key)
+            if isinstance(value, str) and value.strip().startswith("+"):
+                return value
+    return None
+
+
 def extract_structured_outputs(payload: dict[str, Any]) -> dict[str, Any]:
     outputs: dict[str, Any] = {}
     for node in _walk(payload):
@@ -210,7 +240,7 @@ def normalize_vapi_end_of_call(payload: dict[str, Any]) -> CanonicalCallData:
     disposition = str(outputs.get("call_disposition") or "other")
     urgency = str(outputs.get("urgency_level") or ("urgent" if outputs.get("flag_urgent") else "routine"))
     caller_name = outputs.get("caller_name")
-    caller_phone = outputs.get("caller_phone")
+    caller_phone = outputs.get("caller_phone") or extract_customer_phone(payload)
     reason = outputs.get("reason_for_call")
     message_for_staff = outputs.get("message_for_staff")
     call_summary = outputs.get("call_summary")

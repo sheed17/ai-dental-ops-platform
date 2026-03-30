@@ -131,6 +131,34 @@ def test_end_of_call_uses_vapi_enrichment_for_recording(client, monkeypatch):
     assert calls[0]["recording_url"] == "https://example.com/recording.wav"
 
 
+def test_end_of_call_falls_back_to_vapi_customer_phone(client):
+    response = client.post(
+        "/api/v1/vapi/end-of-call",
+        json={
+            "message": {
+                "type": "end-of-call-report",
+                "call": {
+                    "id": "call_with_customer_number",
+                    "phoneNumber": {"number": "+12282832484"},
+                },
+                "customer": {"number": "+12098143953"},
+                "endedReason": "assistant ended call",
+            },
+            "analysis": {
+                "a": {"name": "call_disposition", "result": "appointment_request"},
+                "b": {"name": "urgency_level", "result": "routine"},
+                "c": {"name": "caller_name", "result": "Rashid Samadhi"},
+                "d": {"name": "call_summary", "result": "Caller requested an implant consult."},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    calls = client.get("/api/v1/calls").json()
+    assert calls[0]["caller_phone"] == "+12098143953"
+    assert calls[0]["callback_tasks"][0]["callback_phone"] == "+12098143953"
+
+
 def test_non_final_vapi_event_is_ignored(client):
     response = client.post(
         "/api/v1/vapi/end-of-call",
