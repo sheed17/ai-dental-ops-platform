@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     vapi_base_assistant_id: str
     vapi_api_token: str | None = None
     vapi_api_base_url: str = "https://api.vapi.ai"
+    vapi_webhook_secret: str | None = None
+    twilio_account_sid: str | None = None
+    twilio_auth_token: str | None = None
+    twilio_messaging_service_sid: str | None = None
+    twilio_from_number: str | None = None
     seed_demo_data: bool = True
 
     model_config = SettingsConfigDict(

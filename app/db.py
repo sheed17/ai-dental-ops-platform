@@ -47,6 +47,10 @@ def _bootstrap_schema_updates() -> None:
             "internal_notes": "TEXT",
             "outcome": "VARCHAR(100)",
         },
+        "integration_events": {
+            "max_attempts": "INTEGER DEFAULT 3",
+            "next_attempt_at": "TIMESTAMP",
+        },
     }
 
     if not set(table_updates).intersection(existing_tables):

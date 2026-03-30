@@ -112,7 +112,9 @@ class IntegrationEventRead(BaseModel):
     event_type: str
     status: str
     attempts: int
+    max_attempts: int
     last_error: str | None
+    next_attempt_at: datetime | None
     processed_at: datetime | None
 
 

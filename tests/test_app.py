@@ -178,6 +178,7 @@ def test_sms_integration_event_uses_twilio_managed_provider(client):
     events = client.get("/api/v1/integration-events").json()
     sms_event = next(event for event in events if event["channel"] == "sms")
     assert sms_event["status"] == "processed"
+    assert sms_event["max_attempts"] == 3
 
 
 def test_end_of_call_falls_back_to_vapi_customer_phone(client):
@@ -244,3 +245,68 @@ def test_endcall_success_without_real_call_data_is_ignored(client):
 
     assert response.status_code == 200
     assert response.json()["status"] == "ignored"
+
+
+def test_vapi_webhook_secret_is_enforced(client, monkeypatch):
+    from app.api import routes
+
+    monkeypatch.setattr(routes.settings, "vapi_webhook_secret", "super-secret")
+
+    unauthorized = client.post(
+        "/api/v1/vapi/assistant-request",
+        json={"message": {"type": "assistant-request", "call": {"phoneNumber": {"number": "+12282832484"}}}},
+    )
+    assert unauthorized.status_code == 401
+
+    authorized = client.post(
+        "/api/v1/vapi/assistant-request",
+        headers={"Authorization": "Bearer super-secret"},
+        json={"message": {"type": "assistant-request", "call": {"phoneNumber": {"number": "+12282832484"}}}},
+    )
+    assert authorized.status_code == 200
+
+
+def test_failed_integration_event_is_marked_for_retry(client, monkeypatch):
+    from app.services import integrations
+
+    class AlwaysFailAdapter:
+        provider = "always_fail"
+
+        def process(self, db, event):
+            raise RuntimeError("simulated delivery failure")
+
+    monkeypatch.setitem(integrations.ADAPTERS, "always_fail", AlwaysFailAdapter())
+
+    practice_id = client.get("/api/v1/practice-settings").json()[0]["id"]
+    update_response = client.put(
+        f"/api/v1/practices/{practice_id}/integrations/sms",
+        json={
+            "is_enabled": True,
+            "provider": "twilio_managed",
+            "config": {"provider": "twilio_managed"},
+        },
+    )
+    assert update_response.status_code == 200
+
+    monkeypatch.setattr(integrations, "resolve_provider", lambda db, event: "always_fail")
+
+    client.post(
+        "/api/v1/telephony/missed-call",
+        json={
+            "calledNumber": "+12282832484",
+            "callerPhone": "+15125550001",
+            "callerName": "Retry Me",
+        },
+    )
+
+    events = client.get("/api/v1/integration-events").json()
+    sms_event = next(event for event in events if event["channel"] == "sms")
+    assert sms_event["status"] == "retry"
+    assert sms_event["attempts"] == 1
+    assert sms_event["next_attempt_at"] is not None
+
+
+def test_process_pending_endpoint_processes_queued_events(client):
+    response = client.post("/api/v1/integration-events/process-pending")
+    assert response.status_code == 200
+    assert "processed" in response.json()

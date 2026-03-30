@@ -8,7 +8,8 @@ FastAPI backend for a dental after-hours voice operations platform powered by Va
 - Stores completed calls, structured outputs, incidents, and callback tasks
 - Exposes JSON APIs for calls, incidents, callback tasks, and integration events
 - Renders a simple internal ops dashboard for staff review
-- Queues outbound integration events as a phase 2 foundation
+- Queues outbound integration events with retry support
+- Provides a per-practice integration abstraction layer for CRM, scheduling, insurance, internal alerts, and platform-owned Twilio messaging
 
 ## Local setup
 
@@ -26,6 +27,13 @@ uvicorn app.main:app --reload
 - `PORT`
 - `DATABASE_URL`
 - `VAPI_BASE_ASSISTANT_ID`
+- `VAPI_API_TOKEN`
+- `VAPI_API_BASE_URL`
+- `VAPI_WEBHOOK_SECRET`
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_MESSAGING_SERVICE_SID`
+- `TWILIO_FROM_NUMBER`
 - `SEED_DEMO_DATA`
 
 ## Core routes
@@ -40,6 +48,10 @@ uvicorn app.main:app --reload
 - `GET /api/v1/incidents`
 - `POST /api/v1/incidents/{incident_id}/resolve`
 - `GET /api/v1/integration-events`
+- `POST /api/v1/integration-events/process-pending`
+- `GET /api/v1/integrations/catalog`
+- `GET /api/v1/practices/{practice_id}/integrations`
+- `PUT /api/v1/practices/{practice_id}/integrations/{capability_key}`
 
 ## Dashboard routes
 

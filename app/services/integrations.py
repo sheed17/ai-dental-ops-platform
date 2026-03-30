@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import Protocol
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models import IntegrationEvent, IntegrationSetting
 from app.services.integration_catalog import get_integration_capability
 
@@ -54,11 +56,49 @@ class TwilioManagedSMSAdapter:
 
     def process(self, db: Session, event: IntegrationEvent) -> dict:
         payload = event.payload or {}
+        setting = _get_setting(db, event)
+        config = setting.config_json or {} if setting and setting.config_json else {}
+        to_number = payload.get("to") or payload.get("callback_phone")
+        message_body = payload.get("message") or payload.get("reason_for_call") or "Dental Ops Platform follow-up"
+
+        if not to_number:
+            return {
+                "status": "failed",
+                "provider": self.provider,
+                "message": "No destination phone number available for SMS delivery.",
+            }
+
+        sender_number = config.get("sender_number") or settings.twilio_from_number
+        messaging_service_sid = config.get("messaging_service_sid") or settings.twilio_messaging_service_sid
+        if settings.twilio_account_sid and settings.twilio_auth_token and (sender_number or messaging_service_sid):
+            request_data = {"To": to_number, "Body": message_body}
+            if messaging_service_sid:
+                request_data["MessagingServiceSid"] = messaging_service_sid
+            else:
+                request_data["From"] = sender_number
+
+            response = httpx.post(
+                f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_account_sid}/Messages.json",
+                data=request_data,
+                auth=(settings.twilio_account_sid, settings.twilio_auth_token),
+                timeout=15.0,
+            )
+            response.raise_for_status()
+            response_payload = response.json()
+            return {
+                "status": "processed",
+                "provider": self.provider,
+                "message": f"Sent Twilio SMS for event {event.id}",
+                "to": to_number,
+                "sid": response_payload.get("sid"),
+            }
+
         return {
             "status": "processed",
             "provider": self.provider,
-            "message": f"Prepared Twilio-managed SMS for event {event.id}",
+            "message": f"Prepared Twilio-managed SMS for event {event.id} in simulation mode",
             "to": payload.get("to") or payload.get("callback_phone"),
+            "simulated": True,
         }
 
 

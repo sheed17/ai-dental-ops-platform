@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -97,6 +98,7 @@ def create_operational_records(db: Session, practice: Practice, call: Call, norm
                 payload={
                     "callback_phone": normalized.caller_phone,
                     "reason_for_call": normalized.reason_for_call,
+                    "message": normalized.message_for_staff or normalized.call_summary or normalized.reason_for_call,
                 },
             )
         )
@@ -124,10 +126,31 @@ def _queue_event(
         event_type=event_type,
         status="queued",
         payload=payload,
+        max_attempts=3,
     )
     db.add(event)
     db.flush()
     return event
+
+
+def process_pending_integration_events(limit: int = 50) -> int:
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        pending_ids = db.scalars(
+            select(IntegrationEvent.id)
+            .where(
+                IntegrationEvent.status.in_(("queued", "retry")),
+                (IntegrationEvent.next_attempt_at.is_(None) | (IntegrationEvent.next_attempt_at <= now)),
+            )
+            .order_by(IntegrationEvent.created_at)
+            .limit(limit)
+        ).all()
+        if pending_ids:
+            process_integration_events_async(pending_ids)
+        return len(pending_ids)
+    finally:
+        db.close()
 
 
 def process_integration_events_async(event_ids: Iterable[str]) -> None:
@@ -138,14 +161,33 @@ def process_integration_events_async(event_ids: Iterable[str]) -> None:
             if not event or event.status not in {"queued", "retry"}:
                 continue
             event.attempts += 1
-            result = process_integration_event(db, event)
-            event.status = result.get("status", "processed")
-            if event.status == "failed":
-                event.last_error = result.get("message")
-            else:
-                event.last_error = None
+            try:
+                result = process_integration_event(db, event)
+                event_status = result.get("status", "processed")
+            except Exception as exc:  # noqa: BLE001
+                result = {
+                    "status": "failed",
+                    "provider": "exception",
+                    "message": str(exc),
+                }
+                event_status = "failed"
+
             event.payload = {**(event.payload or {}), "adapterResult": result}
-            event.processed_at = datetime.now(timezone.utc)
+
+            if event_status == "failed":
+                event.last_error = result.get("message")
+                if event.attempts >= event.max_attempts:
+                    event.status = "failed"
+                    event.processed_at = datetime.now(timezone.utc)
+                    event.next_attempt_at = None
+                else:
+                    event.status = "retry"
+                    event.next_attempt_at = datetime.now(timezone.utc) + timedelta(minutes=event.attempts)
+            else:
+                event.status = event_status
+                event.last_error = None
+                event.processed_at = datetime.now(timezone.utc)
+                event.next_attempt_at = None
         db.commit()
     finally:
         db.close()

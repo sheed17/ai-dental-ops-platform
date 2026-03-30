@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -36,6 +36,22 @@ from app.services.workflow import create_operational_records, process_integratio
 
 
 router = APIRouter(prefix="/api/v1")
+
+
+def verify_vapi_webhook(
+    authorization: str | None = Header(default=None),
+    x_vapi_secret: str | None = Header(default=None),
+) -> None:
+    expected_secret = settings.vapi_webhook_secret
+    if not expected_secret:
+        return
+
+    bearer_secret = None
+    if isinstance(authorization, str) and authorization.lower().startswith("bearer "):
+        bearer_secret = authorization.split(" ", 1)[1].strip()
+
+    if expected_secret not in {x_vapi_secret, bearer_secret}:
+        raise HTTPException(status_code=401, detail="Invalid Vapi webhook authentication.")
 
 
 def _serialize_call(call: Call) -> CallRead:
@@ -105,7 +121,11 @@ def healthcheck() -> dict[str, str]:
 
 
 @router.post("/vapi/assistant-request")
-def vapi_assistant_request(payload: dict[str, Any], db: Session = Depends(get_db)) -> dict:
+def vapi_assistant_request(
+    payload: dict[str, Any],
+    _: None = Depends(verify_vapi_webhook),
+    db: Session = Depends(get_db),
+) -> dict:
     message_type = extract_message_type(payload)
     if message_type and message_type != "assistant-request":
         return {"ok": True, "messageType": message_type}
@@ -144,6 +164,7 @@ def vapi_assistant_request(payload: dict[str, Any], db: Session = Depends(get_db
 def vapi_end_of_call(
     payload: dict[str, Any],
     background_tasks: BackgroundTasks,
+    _: None = Depends(verify_vapi_webhook),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     message_type = extract_message_type(payload)
@@ -410,6 +431,14 @@ def update_practice_settings(
 def list_integration_events(db: Session = Depends(get_db)) -> list[IntegrationEventRead]:
     events = db.scalars(select(IntegrationEvent).order_by(desc(IntegrationEvent.created_at))).all()
     return [IntegrationEventRead.model_validate(event, from_attributes=True) for event in events]
+
+
+@router.post("/integration-events/process-pending")
+def process_pending_events(limit: int = 50) -> dict[str, int]:
+    from app.services.workflow import process_pending_integration_events
+
+    processed = process_pending_integration_events(limit=limit)
+    return {"processed": processed}
 
 
 @router.get("/integrations/catalog", response_model=list[IntegrationCatalogItemRead])
