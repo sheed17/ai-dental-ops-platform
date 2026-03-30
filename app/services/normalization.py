@@ -86,6 +86,19 @@ def extract_recording_url(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def merge_webhook_with_enrichment(webhook_payload: dict[str, Any], enriched_payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not enriched_payload:
+        return webhook_payload
+    return {
+        **enriched_payload,
+        "webhook": webhook_payload,
+        "analysis": webhook_payload.get("analysis", enriched_payload.get("analysis")),
+        "messages": webhook_payload.get("messages", enriched_payload.get("messages")),
+        "message": webhook_payload.get("message", enriched_payload.get("message")),
+        "call": webhook_payload.get("call", enriched_payload.get("call")),
+    }
+
+
 def extract_vapi_call_id(payload: dict[str, Any]) -> str | None:
     for path in (("message", "call", "id"), ("call", "id"), ("id",)):
         current: Any = payload

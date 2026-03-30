@@ -101,3 +101,31 @@ def test_practice_settings_can_be_updated(client):
     assert updated["scheduling_mode"] == "availability_assist"
     assert updated["insurance_mode"] == "plan_lookup"
     assert updated["callback_sla_minutes"] == 30
+
+
+def test_end_of_call_uses_vapi_enrichment_for_recording(client, monkeypatch):
+    from app.api import routes
+
+    monkeypatch.setattr(
+        routes,
+        "fetch_call_details",
+        lambda call_id: {"id": call_id, "recordingUrl": "https://example.com/recording.wav"},
+    )
+
+    response = client.post(
+        "/api/v1/vapi/end-of-call",
+        json={
+            "message": {
+                "type": "end-of-call-report",
+                "call": {"id": "call_with_recording", "phoneNumber": {"number": "+12282832484"}},
+            },
+            "analysis": {
+                "a": {"name": "call_disposition", "result": "general_message"},
+                "b": {"name": "urgency_level", "result": "routine"},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    calls = client.get("/api/v1/calls").json()
+    assert calls[0]["recording_url"] == "https://example.com/recording.wav"

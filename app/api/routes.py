@@ -18,8 +18,14 @@ from app.schemas import (
     PracticeRead,
     PracticeSettingsUpdate,
 )
-from app.services.normalization import extract_called_number, extract_message_type, normalize_vapi_end_of_call
+from app.services.normalization import (
+    extract_called_number,
+    extract_message_type,
+    merge_webhook_with_enrichment,
+    normalize_vapi_end_of_call,
+)
 from app.services.practice_directory import get_default_practice, get_practice_by_phone
+from app.services.vapi_client import fetch_call_details
 from app.services.workflow import create_operational_records, process_integration_events_async
 
 
@@ -121,13 +127,18 @@ def vapi_end_of_call(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    message_type = extract_message_type(payload)
+    if message_type and message_type not in {"end-of-call-report", "status-update", "assistant-request"}:
+        return {"ok": True, "messageType": message_type}
+
     called_number, practice = get_practice_by_phone(db, extract_called_number(payload))
     if not practice:
         practice = get_default_practice(db)
     if not practice:
         raise HTTPException(status_code=404, detail=f"No practice found for number: {called_number or 'unknown'}")
 
-    normalized = normalize_vapi_end_of_call(payload)
+    enriched_payload = fetch_call_details(payload.get("message", {}).get("call", {}).get("id") if isinstance(payload.get("message"), dict) else None)
+    normalized = normalize_vapi_end_of_call(merge_webhook_with_enrichment(payload, enriched_payload))
 
     existing_call = None
     if normalized.vapi_call_id:
@@ -152,7 +163,11 @@ def vapi_end_of_call(
         recording_url=normalized.recording_url,
         duration_seconds=normalized.duration_seconds,
         ended_reason=normalized.ended_reason,
-        raw_payload=normalized.raw_payload,
+        raw_payload={
+            "webhook": payload,
+            "enriched_call": enriched_payload,
+            "normalized_structured_outputs": normalized.structured_outputs,
+        },
     )
     db.add(call)
     db.flush()
