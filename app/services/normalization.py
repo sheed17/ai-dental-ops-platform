@@ -150,21 +150,39 @@ def is_final_vapi_call_payload(payload: dict[str, Any], enriched_payload: dict[s
             if isinstance(message_type, str):
                 candidates.append(message_type.lower())
 
+    if any(value in {"in-progress", "queued", "ringing", "status-update", "assistant-request"} for value in candidates):
+        return False
+
     if any(value in {"assistant ended call", "customer ended call", "assistant-ended-call", "customer-ended-call"} for value in candidates):
         return True
 
-    if any("end-of-call" in value or "completed" in value for value in candidates):
+    if any("completed" in value for value in candidates):
         return True
-
-    if any(value in {"in-progress", "queued", "ringing", "status-update", "assistant-request"} for value in candidates):
-        return False
 
     merged_payload = merge_webhook_with_enrichment(payload, enriched_payload)
     outputs = extract_structured_outputs(merged_payload)
     transcript = extract_transcript(merged_payload)
     recording_url = extract_recording_url(merged_payload)
+    caller_name = outputs.get("caller_name")
+    caller_phone = outputs.get("caller_phone")
+    call_summary = outputs.get("call_summary")
+    reason_for_call = outputs.get("reason_for_call")
+    disposition = outputs.get("call_disposition")
 
-    return bool(outputs or transcript or recording_url)
+    # Ignore placeholder-only outputs like endCall=Success that can arrive before
+    # the fully finalized report is available.
+    meaningful_outputs = any(
+        value
+        for value in (
+            caller_name,
+            caller_phone,
+            call_summary,
+            reason_for_call,
+            disposition,
+        )
+    )
+
+    return bool(meaningful_outputs or transcript or recording_url)
 
 
 @dataclass

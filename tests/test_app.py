@@ -148,3 +148,22 @@ def test_non_final_vapi_event_is_ignored(client):
 
     calls = client.get("/api/v1/calls").json()
     assert calls == []
+
+
+def test_endcall_success_without_real_call_data_is_ignored(client):
+    response = client.post(
+        "/api/v1/vapi/end-of-call",
+        json={
+            "message": {
+                "type": "end-of-call-report",
+                "call": {"id": "call_placeholder", "phoneNumber": {"number": "+12282832484"}},
+                "status": "in-progress",
+            },
+            "analysis": {
+                "a": {"name": "endCall", "result": "Success."},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ignored"
