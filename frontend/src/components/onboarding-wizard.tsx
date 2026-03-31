@@ -2,24 +2,45 @@
 
 import { useMemo, useState, useTransition } from "react";
 
-import { OnboardingOverview, Practice, updatePracticeSettings } from "@/lib/api";
+import {
+  OnboardingOverview,
+  Practice,
+  PracticeModule,
+  updatePracticeModule,
+  updatePracticeSettings,
+} from "@/lib/api";
 
 const steps = [
+  { key: "modules", title: "Choose modules" },
   { key: "practice_profile", title: "Practice info" },
-  { key: "workflow_modes", title: "After-hours rules" },
-  { key: "messaging", title: "Notifications" },
-  { key: "crm", title: "Integrations" },
-  { key: "alerts", title: "Go live" },
+  { key: "workflow_modes", title: "Configure preferences" },
+  { key: "integrations", title: "Connect systems" },
+  { key: "go_live", title: "Go live" },
 ];
+
+const moduleDescriptions: Record<string, string> = {
+  after_hours: "Answer after-hours calls and turn them into operational work.",
+  missed_calls: "Recover unanswered calls with automated outreach and callback workflows.",
+  callback_manager: "Organize callback tasks, assignees, notes, and outcomes.",
+  emergency_routing: "Escalate urgent dental issues and emergency-related activity.",
+  booking: "Support booking request capture and future scheduling connectors.",
+};
+
+function prettifyModule(moduleKey: string) {
+  return moduleKey.replaceAll("_", " ");
+}
 
 export function OnboardingWizard({
   practice,
   overview,
+  modules,
 }: {
   practice: Practice;
   overview: OnboardingOverview;
+  modules: PracticeModule[];
 }) {
   const [stepIndex, setStepIndex] = useState(0);
+  const [moduleState, setModuleState] = useState(modules);
   const [schedulingMode, setSchedulingMode] = useState(practice.scheduling_mode);
   const [insuranceMode, setInsuranceMode] = useState(practice.insurance_mode);
   const [missedCallEnabled, setMissedCallEnabled] = useState(practice.missed_call_recovery_enabled);
@@ -28,6 +49,7 @@ export function OnboardingWizard({
   const [isPending, startTransition] = useTransition();
 
   const currentStep = useMemo(() => steps[stepIndex], [stepIndex]);
+  const enabledModules = moduleState.filter((module) => module.is_enabled);
 
   const saveWorkflowSettings = () => {
     startTransition(async () => {
@@ -39,9 +61,26 @@ export function OnboardingWizard({
           missed_call_recovery_message: practice.missed_call_recovery_message,
           callback_sla_minutes: Number(callbackSla),
         });
-        setMessage("Workflow settings saved");
+        setMessage("Preferences saved");
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Failed to save");
+      }
+    });
+  };
+
+  const toggleModule = (module: PracticeModule) => {
+    startTransition(async () => {
+      try {
+        const updated = await updatePracticeModule(practice.id, module.module_key, {
+          is_enabled: !module.is_enabled,
+          config_json: module.config_json,
+        });
+        setModuleState((current) =>
+          current.map((item) => (item.module_key === updated.module_key ? updated : item)),
+        );
+        setMessage(`${prettifyModule(module.module_key)} ${updated.is_enabled ? "enabled" : "disabled"}`);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Failed to update module");
       }
     });
   };
@@ -70,12 +109,50 @@ export function OnboardingWizard({
           </div>
         </div>
 
+        {currentStep.key === "modules" ? (
+          <div className="stack-list">
+            <div className="stack-item">
+              <strong>Choose what this practice wants the platform to do.</strong>
+              <p>These modules shape onboarding, workflows, and which automation paths get turned on first.</p>
+            </div>
+            <div className="stack-list">
+              {moduleState.map((module) => (
+                <div key={module.id} className="stack-item">
+                  <div className="stack-item__top">
+                    <strong>{String(module.config_json?.label || prettifyModule(module.module_key))}</strong>
+                    <span className={`pill pill--${module.is_enabled ? "routine" : "high"}`}>
+                      {module.is_enabled ? "enabled" : "disabled"}
+                    </span>
+                  </div>
+                  <p>{moduleDescriptions[module.module_key] || "Module configuration for this practice."}</p>
+                  <div className="action-bar">
+                    <button
+                      type="button"
+                      className={`action-button ${module.is_enabled ? "" : "action-button--accent"}`}
+                      onClick={() => toggleModule(module)}
+                      disabled={isPending}
+                    >
+                      {module.is_enabled ? "Disable module" : "Enable module"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         {currentStep.key === "practice_profile" ? (
           <div className="stack-list">
             <div className="stack-item">
               <strong>{practice.practice_name}</strong>
               <p>{practice.address}</p>
               <p>{practice.office_hours}</p>
+            </div>
+            <div className="stack-item">
+              <strong>Go-live profile</strong>
+              <p>Website: {practice.website}</p>
+              <p>Emergency number: {practice.emergency_number}</p>
+              <p>Languages: {practice.languages}</p>
             </div>
           </div>
         ) : null}
@@ -115,29 +192,69 @@ export function OnboardingWizard({
               </label>
             </div>
             <div className="action-bar">
-              <button type="button" className="action-button action-button--accent" onClick={saveWorkflowSettings} disabled={isPending}>
-                Save workflow settings
+              <button
+                type="button"
+                className="action-button action-button--accent"
+                onClick={saveWorkflowSettings}
+                disabled={isPending}
+              >
+                Save preferences
               </button>
-              {message ? <span className="subtle">{message}</span> : null}
             </div>
           </div>
         ) : null}
 
-        {currentStep.key !== "practice_profile" && currentStep.key !== "workflow_modes" ? (
+        {currentStep.key === "integrations" ? (
           <div className="stack-list">
+            <div className="stack-item">
+              <strong>Platform-owned by default</strong>
+              <p>Voice comes through Vapi, messaging through Twilio, and staff alerts default to email for low-friction rollout.</p>
+            </div>
+            <div className="stack-item">
+              <strong>Optional connectors later</strong>
+              <p>CRM, scheduling, insurance, and advanced alert connectors can be added after go-live without changing the core workflow model.</p>
+            </div>
             {overview.checklist
-              .filter((item) => item.key === currentStep.key)
+              .filter((item) => ["messaging", "crm", "alerts"].includes(item.key))
               .map((item) => (
                 <div key={item.key} className="stack-item">
                   <strong>{item.label}</strong>
                   <p>{item.detail}</p>
                   <span className={`pill pill--${item.completed ? "routine" : "high"}`}>
-                    {item.completed ? "complete" : "needs setup"}
+                    {item.completed ? "ready" : "needs setup"}
                   </span>
                 </div>
               ))}
           </div>
         ) : null}
+
+        {currentStep.key === "go_live" ? (
+          <div className="stack-list">
+            <div className="stack-item">
+              <strong>{overview.practice_name} is almost live.</strong>
+              <p>
+                {overview.completed_steps} of {overview.total_steps} onboarding checkpoints are complete.
+              </p>
+            </div>
+            <div className="stack-item">
+              <strong>Enabled modules</strong>
+              <p>{enabledModules.map((module) => String(module.config_json?.label || prettifyModule(module.module_key))).join(", ") || "No modules enabled yet."}</p>
+            </div>
+            {overview.checklist.map((item) => (
+              <div key={item.key} className="stack-item">
+                <div className="stack-item__top">
+                  <strong>{item.label}</strong>
+                  <span className={`pill pill--${item.completed ? "routine" : "high"}`}>
+                    {item.completed ? "complete" : "needs setup"}
+                  </span>
+                </div>
+                <p>{item.detail}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {message ? <p className="subtle" style={{ marginTop: 12 }}>{message}</p> : null}
 
         <div className="wizard__actions">
           <button type="button" className="action-button" onClick={() => setStepIndex((value) => Math.max(0, value - 1))}>

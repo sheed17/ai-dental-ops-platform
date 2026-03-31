@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-import { TopNav } from "@/components/top-nav";
 import { getDashboardSummary, getOperationsFeed } from "@/lib/api";
 
 function formatDateTime(value: string) {
@@ -17,8 +16,7 @@ export default async function Home() {
   const activePractice = summary.practices[0] ?? null;
 
   return (
-    <main className="app-shell">
-      <TopNav />
+    <div className="app-shell">
 
       <section className="hero">
         <div>
@@ -242,6 +240,6 @@ export default async function Home() {
           </div>
         </article>
       </section>
-    </main>
+    </div>
   );
 }

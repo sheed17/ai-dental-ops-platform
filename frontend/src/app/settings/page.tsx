@@ -1,12 +1,10 @@
-import { TopNav } from "@/components/top-nav";
 import { getPracticeSettings } from "@/lib/api";
 
 export default async function SettingsPage() {
   const practices = await getPracticeSettings();
 
   return (
-    <main className="app-shell">
-      <TopNav />
+    <div className="app-shell">
       <section className="hero hero--compact">
         <div>
           <span className="eyebrow">Practice Settings</span>
@@ -56,6 +54,6 @@ export default async function SettingsPage() {
           </article>
         ))}
       </section>
-    </main>
+    </div>
   );
 }

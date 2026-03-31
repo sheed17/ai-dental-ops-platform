@@ -56,9 +56,9 @@ CATALOG: dict[str, IntegrationCapability] = {
         label="Staff Alerts",
         ownership="platform",
         description="Platform-managed internal alerts for urgent calls, missed callbacks, and queue escalations.",
-        supported_providers=["platform_internal_alerts", "email_digest"],
-        default_provider="platform_internal_alerts",
-        onboarding_fields=["alert_email", "urgent_sms_number", "morning_digest_recipients"],
+        supported_providers=["platform_internal_alerts", "slack_webhook", "email_digest"],
+        default_provider="email_digest",
+        onboarding_fields=["alert_email", "urgent_sms_number", "morning_digest_recipients", "slack_webhook_url"],
     ),
 }
 

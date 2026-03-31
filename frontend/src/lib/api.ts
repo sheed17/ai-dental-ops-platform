@@ -92,6 +92,15 @@ export type Practice = {
   callback_sla_minutes: number;
 };
 
+export type PracticeModule = {
+  id: string;
+  practice_id: string;
+  module_key: string;
+  is_enabled: boolean;
+  config_json: Record<string, unknown> | null;
+  created_at: string;
+};
+
 export type CallListItem = {
   id: string;
   caller_name: string | null;
@@ -143,6 +152,11 @@ export type OnboardingOverview = {
   completed_steps: number;
   total_steps: number;
   checklist: OnboardingChecklistItem[];
+};
+
+export type PracticeModuleUpdate = {
+  is_enabled: boolean;
+  config_json?: Record<string, unknown> | null;
 };
 
 export type OperationFeedItem = {
@@ -256,6 +270,10 @@ export async function getOnboardingOverview(practiceId: string): Promise<Onboard
   return apiFetch<OnboardingOverview>(`/practices/${practiceId}/onboarding`);
 }
 
+export async function getPracticeModules(practiceId: string): Promise<PracticeModule[]> {
+  return apiFetch<PracticeModule[]>(`/practices/${practiceId}/modules`);
+}
+
 export async function getOperationsFeed(): Promise<OperationFeedItem[]> {
   return apiFetch<OperationFeedItem[]>("/operations/feed");
 }
@@ -295,6 +313,17 @@ export async function updatePracticeSettings(
 ): Promise<Practice> {
   return apiMutation<Practice>(`/practice-settings/${practiceId}`, {
     method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updatePracticeModule(
+  practiceId: string,
+  moduleKey: string,
+  payload: PracticeModuleUpdate,
+): Promise<PracticeModule> {
+  return apiMutation<PracticeModule>(`/practices/${practiceId}/modules/${moduleKey}`, {
+    method: "PUT",
     body: JSON.stringify(payload),
   });
 }

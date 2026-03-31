@@ -136,6 +136,23 @@ def test_practice_integration_can_be_updated_to_hubspot(client):
     assert payload["config"]["pipeline_id"] == "pipeline_123"
 
 
+def test_internal_alert_integration_can_be_updated_to_slack(client):
+    practice_id = client.get("/api/v1/practice-settings").json()[0]["id"]
+    response = client.put(
+        f"/api/v1/practices/{practice_id}/integrations/internal_alert",
+        json={
+            "is_enabled": True,
+            "provider": "slack_webhook",
+            "config": {"slack_webhook_url": "https://hooks.slack.test/services/123"},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "slack_webhook"
+    assert payload["config"]["slack_webhook_url"] == "https://hooks.slack.test/services/123"
+
+
 def test_end_of_call_uses_vapi_enrichment_for_recording(client, monkeypatch):
     from app.api import routes
 
@@ -179,6 +196,114 @@ def test_sms_integration_event_uses_twilio_managed_provider(client):
     sms_event = next(event for event in events if event["channel"] == "sms")
     assert sms_event["status"] == "processed"
     assert sms_event["max_attempts"] == 3
+
+
+def test_slack_alert_provider_processes_internal_alert_event(client, monkeypatch):
+    from app.services import integrations
+
+    captured: dict = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+    def fake_post(url, json, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        return FakeResponse()
+
+    monkeypatch.setattr(integrations.httpx, "post", fake_post)
+
+    practice_id = client.get("/api/v1/practice-settings").json()[0]["id"]
+    response = client.put(
+        f"/api/v1/practices/{practice_id}/integrations/internal_alert",
+        json={
+            "is_enabled": True,
+            "provider": "slack_webhook",
+            "config": {"slack_webhook_url": "https://hooks.slack.test/services/123"},
+        },
+    )
+    assert response.status_code == 200
+
+    client.post(
+        "/api/v1/vapi/end-of-call",
+        json={
+            "message": {
+                "type": "end-of-call-report",
+                "call": {"id": "urgent_slack_alert", "phoneNumber": {"number": "+12282832484"}},
+                "customer": {"number": "+12098143953"},
+                "endedReason": "assistant ended call",
+            },
+            "analysis": {
+                "a": {"name": "call_disposition", "result": "urgent_dental"},
+                "b": {"name": "urgency_level", "result": "urgent"},
+                "c": {"name": "flag_urgent", "result": True},
+                "d": {"name": "call_summary", "result": "Urgent tooth pain."},
+            },
+        },
+    )
+
+    assert captured["url"] == "https://hooks.slack.test/services/123"
+    assert "Urgent" in captured["json"]["text"] or "urgent" in captured["json"]["text"]
+
+
+def test_email_alert_provider_processes_internal_alert_event(client, monkeypatch):
+    from app.services import integrations
+
+    sent_messages: list[dict] = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout):
+            sent_messages.append({"host": host, "port": port, "timeout": timeout})
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            return False
+        def starttls(self):
+            sent_messages.append({"tls": True})
+        def login(self, username, password):
+            sent_messages.append({"username": username, "password": password})
+        def send_message(self, message):
+            sent_messages.append({"to": message["To"], "subject": message["Subject"]})
+
+    monkeypatch.setattr(integrations.smtplib, "SMTP", FakeSMTP)
+    monkeypatch.setattr(integrations.settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(integrations.settings, "smtp_port", 587)
+    monkeypatch.setattr(integrations.settings, "smtp_username", "user")
+    monkeypatch.setattr(integrations.settings, "smtp_password", "pass")
+    monkeypatch.setattr(integrations.settings, "smtp_use_tls", True)
+    monkeypatch.setattr(integrations.settings, "smtp_from_email", "support@tryneyma.com")
+
+    practice_id = client.get("/api/v1/practice-settings").json()[0]["id"]
+    response = client.put(
+        f"/api/v1/practices/{practice_id}/integrations/internal_alert",
+        json={
+            "is_enabled": True,
+            "provider": "email_digest",
+            "config": {"alert_email": "frontdesk@example.com"},
+        },
+    )
+    assert response.status_code == 200
+
+    client.post(
+        "/api/v1/vapi/end-of-call",
+        json={
+            "message": {
+                "type": "end-of-call-report",
+                "call": {"id": "urgent_email_alert", "phoneNumber": {"number": "+12282832484"}},
+                "customer": {"number": "+12098143953"},
+                "endedReason": "assistant ended call",
+            },
+            "analysis": {
+                "a": {"name": "call_disposition", "result": "urgent_dental"},
+                "b": {"name": "urgency_level", "result": "urgent"},
+                "c": {"name": "flag_urgent", "result": True},
+                "d": {"name": "call_summary", "result": "Urgent swelling and pain."},
+            },
+        },
+    )
+
+    assert any(item.get("to") == "frontdesk@example.com" for item in sent_messages)
 
 
 def test_end_of_call_falls_back_to_vapi_customer_phone(client):
@@ -375,6 +500,22 @@ def test_onboarding_overview_returns_checklist(client):
     assert payload["practice_id"] == practice_id
     assert payload["total_steps"] >= 1
     assert len(payload["checklist"]) == payload["total_steps"]
+    assert any(item["key"] == "modules" for item in payload["checklist"])
+
+
+def test_practice_modules_can_be_listed_and_updated(client):
+    practice_id = client.get("/api/v1/practice-settings").json()[0]["id"]
+    modules = client.get(f"/api/v1/practices/{practice_id}/modules")
+    assert modules.status_code == 200
+    assert any(module["module_key"] == "after_hours" for module in modules.json())
+
+    updated = client.put(
+        f"/api/v1/practices/{practice_id}/modules/booking",
+        json={"is_enabled": False, "config_json": {"label": "Booking Assistant"}},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["module_key"] == "booking"
+    assert updated.json()["is_enabled"] is False
 
 
 def test_operations_feed_and_routing_rules_are_available(client):
@@ -385,6 +526,17 @@ def test_operations_feed_and_routing_rules_are_available(client):
     rules = client.get(f"/api/v1/practices/{practice_id}/routing-rules")
     assert rules.status_code == 200
     assert len(rules.json()) >= 1
+
+    events = client.get("/api/v1/events")
+    assert events.status_code == 200
+
+
+def test_platform_checklist_surfaces_built_and_pending_items(client):
+    response = client.get("/api/v1/platform/checklist")
+    assert response.status_code == 200
+    payload = response.json()
+    assert any(item["key"] == "event_abstraction" for item in payload["built"])
+    assert any(item["key"] == "crm_live" for item in payload["pending"])
 
 
 def test_twilio_inbound_message_creates_communication_and_updates_task(client):
@@ -471,7 +623,7 @@ def test_operations_feed_includes_communication_events(client):
     )
 
     feed = client.get("/api/v1/operations/feed").json()
-    assert any(item["item_type"] == "communication" for item in feed)
+    assert any(item["item_type"] == "patient.replied" for item in feed)
 
 
 def test_call_actions_mark_handled_and_schedule_callback(client):

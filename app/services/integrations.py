@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import smtplib
+from email.message import EmailMessage
 from typing import Protocol
 
 import httpx
@@ -143,12 +145,108 @@ class PlatformInternalAlertAdapter:
         }
 
 
+class SlackWebhookAdapter:
+    provider = "slack_webhook"
+
+    def process(self, db: Session, event: IntegrationEvent) -> dict:
+        setting = _get_setting(db, event)
+        config = setting.config_json or {} if setting and setting.config_json else {}
+        webhook_url = config.get("slack_webhook_url") or settings.slack_webhook_url
+        payload = event.payload or {}
+        text = _format_alert_message(event, payload)
+
+        if webhook_url:
+            response = httpx.post(webhook_url, json={"text": text}, timeout=15.0)
+            response.raise_for_status()
+            return {
+                "status": "processed",
+                "provider": self.provider,
+                "message": f"Sent Slack alert for event {event.id}",
+            }
+
+        return {
+            "status": "processed",
+            "provider": self.provider,
+            "message": f"Prepared Slack alert for event {event.id} in simulation mode",
+            "simulated": True,
+        }
+
+
+class EmailDigestAdapter:
+    provider = "email_digest"
+
+    def process(self, db: Session, event: IntegrationEvent) -> dict:
+        setting = _get_setting(db, event)
+        config = setting.config_json or {} if setting and setting.config_json else {}
+        recipients = []
+        if isinstance(config.get("alert_email"), str) and config["alert_email"]:
+            recipients.append(config["alert_email"])
+        if isinstance(config.get("morning_digest_recipients"), list):
+            recipients.extend(item for item in config["morning_digest_recipients"] if isinstance(item, str) and item)
+
+        recipients = list(dict.fromkeys(recipients))
+        payload = event.payload or {}
+        subject = f"Dental Ops Alert: {event.event_type.replace('_', ' ').title()}"
+        body = _format_alert_message(event, payload)
+
+        if recipients and settings.smtp_host and settings.smtp_from_email:
+            message = EmailMessage()
+            message["Subject"] = subject
+            message["From"] = settings.smtp_from_email
+            message["To"] = ", ".join(recipients)
+            message.set_content(body)
+
+            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as smtp:
+                if settings.smtp_use_tls:
+                    smtp.starttls()
+                if settings.smtp_username and settings.smtp_password:
+                    smtp.login(settings.smtp_username, settings.smtp_password)
+                smtp.send_message(message)
+
+            return {
+                "status": "processed",
+                "provider": self.provider,
+                "message": f"Sent email alert for event {event.id}",
+                "recipients": recipients,
+            }
+
+        return {
+            "status": "processed",
+            "provider": self.provider,
+            "message": f"Prepared email alert for event {event.id} in simulation mode",
+            "recipients": recipients,
+            "simulated": True,
+        }
+
+
+def _format_alert_message(event: IntegrationEvent, payload: dict) -> str:
+    lines = [
+        f"Event: {event.event_type.replace('_', ' ').title()}",
+        f"Channel: {event.channel}",
+    ]
+    if payload.get("caller_name"):
+        lines.append(f"Caller: {payload['caller_name']}")
+    if payload.get("caller_phone") or payload.get("callback_phone"):
+        lines.append(f"Phone: {payload.get('caller_phone') or payload.get('callback_phone')}")
+    if payload.get("severity"):
+        lines.append(f"Severity: {payload['severity']}")
+    if payload.get("summary"):
+        lines.append(f"Summary: {payload['summary']}")
+    if payload.get("message"):
+        lines.append(f"Message: {payload['message']}")
+    if payload.get("minutes_overdue") is not None:
+        lines.append(f"Minutes overdue: {payload['minutes_overdue']}")
+    return "\n".join(lines)
+
+
 ADAPTERS: dict[str, IntegrationAdapter] = {
     "generic_crm_stub": GenericCRMAdapter(),
     "hubspot": HubSpotAdapter(),
     "go_high_level": GoHighLevelAdapter(),
     "twilio_managed": TwilioManagedSMSAdapter(),
     "platform_internal_alerts": PlatformInternalAlertAdapter(),
+    "slack_webhook": SlackWebhookAdapter(),
+    "email_digest": EmailDigestAdapter(),
 }
 
 

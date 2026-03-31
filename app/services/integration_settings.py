@@ -43,6 +43,7 @@ def _default_config(practice: Practice, capability_key: str) -> dict:
             "alert_email": None,
             "urgent_sms_number": practice.emergency_number,
             "morning_digest_recipients": [],
+            "slack_webhook_url": None,
         }
     return {"provider": default_provider}
 

@@ -39,6 +39,8 @@ class Practice(Base):
 
     phone_numbers: Mapped[list[PracticePhoneNumber]] = relationship(back_populates="practice", cascade="all, delete-orphan")
     calls: Mapped[list[Call]] = relationship(back_populates="practice")
+    modules: Mapped[list[PracticeModule]] = relationship(back_populates="practice", cascade="all, delete-orphan")
+    operational_events: Mapped[list[OperationalEvent]] = relationship(back_populates="practice", cascade="all, delete-orphan")
 
 
 class PracticePhoneNumber(Base):
@@ -181,6 +183,41 @@ class CommunicationEvent(Base):
 
     call: Mapped[Call | None] = relationship(back_populates="communication_events")
     callback_task: Mapped[CallbackTask | None] = relationship(back_populates="communication_events")
+
+
+class PracticeModule(Base):
+    __tablename__ = "practice_modules"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    practice_id: Mapped[str] = mapped_column(ForeignKey("practices.id"), index=True)
+    module_key: Mapped[str] = mapped_column(String(100), index=True)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    config_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    practice: Mapped[Practice] = relationship(back_populates="modules")
+
+
+class OperationalEvent(Base):
+    __tablename__ = "operational_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    practice_id: Mapped[str] = mapped_column(ForeignKey("practices.id"), index=True)
+    event_name: Mapped[str] = mapped_column(String(120), index=True)
+    source: Mapped[str] = mapped_column(String(50), default="system")
+    status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    severity: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    title: Mapped[str] = mapped_column(String(255))
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    call_id: Mapped[str | None] = mapped_column(ForeignKey("calls.id"), nullable=True, index=True)
+    incident_id: Mapped[str | None] = mapped_column(ForeignKey("incidents.id"), nullable=True, index=True)
+    callback_task_id: Mapped[str | None] = mapped_column(ForeignKey("callback_tasks.id"), nullable=True, index=True)
+    communication_event_id: Mapped[str | None] = mapped_column(ForeignKey("communication_events.id"), nullable=True, index=True)
+    integration_event_id: Mapped[str | None] = mapped_column(ForeignKey("integration_events.id"), nullable=True, index=True)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    practice: Mapped[Practice] = relationship(back_populates="operational_events")
 
 
 class IntegrationSetting(Base):

@@ -39,6 +39,20 @@ class PracticeRead(BaseModel):
     callback_sla_minutes: int
 
 
+class PracticeModuleRead(BaseModel):
+    id: str
+    practice_id: str
+    module_key: str
+    is_enabled: bool
+    config_json: dict[str, Any] | None
+    created_at: datetime
+
+
+class PracticeModuleUpdate(BaseModel):
+    is_enabled: bool
+    config_json: dict[str, Any] | None = None
+
+
 class CallArtifactRead(BaseModel):
     id: str
     artifact_type: str
@@ -221,6 +235,24 @@ class OperationFeedItemRead(BaseModel):
     related_call_id: str | None = None
 
 
+class OperationalEventRead(BaseModel):
+    id: str
+    practice_id: str
+    event_name: str
+    source: str
+    status: str | None
+    severity: str | None
+    title: str
+    detail: str | None
+    call_id: str | None
+    incident_id: str | None
+    callback_task_id: str | None
+    communication_event_id: str | None
+    integration_event_id: str | None
+    payload: dict[str, Any] | None
+    created_at: datetime
+
+
 class CallActionRequest(BaseModel):
     action: str
     note: str | None = None
@@ -235,3 +267,15 @@ class TwilioInboundMessageRead(BaseModel):
     status: str
     communication_event_id: str
     callback_task_id: str | None = None
+
+
+class BuildChecklistItemRead(BaseModel):
+    key: str
+    status: str
+    label: str
+    detail: str
+
+
+class BuildChecklistRead(BaseModel):
+    built: list[BuildChecklistItemRead]
+    pending: list[BuildChecklistItemRead]

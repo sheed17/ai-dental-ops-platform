@@ -1,5 +1,4 @@
 import { RoutingRulesEditor } from "@/components/routing-rules-editor";
-import { TopNav } from "@/components/top-nav";
 import { getIntegrationCatalog, getPracticeIntegrations, getPracticeSettings, getRoutingRules } from "@/lib/api";
 
 export default async function IntegrationsPage() {
@@ -16,8 +15,7 @@ export default async function IntegrationsPage() {
   const integrationMap = new Map(integrations.map((setting) => [setting.capability_key, setting]));
 
   return (
-    <main className="app-shell">
-      <TopNav />
+    <div className="app-shell">
       <section className="hero hero--compact">
         <div>
           <span className="eyebrow">Integrations</span>
@@ -68,6 +66,6 @@ export default async function IntegrationsPage() {
         </div>
         {activePractice ? <RoutingRulesEditor practiceId={activePractice.id} initialRules={routingRules} /> : null}
       </section>
-    </main>
+    </div>
   );
 }

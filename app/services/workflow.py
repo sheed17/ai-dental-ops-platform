@@ -10,12 +10,31 @@ from app.db import SessionLocal
 from app.models import Call, CallbackTask, CommunicationEvent, Incident, IntegrationEvent, Practice, RoutingRule
 from app.services.integrations import process_integration_event
 from app.services.normalization import CanonicalCallData
+from app.services.platform import emit_operational_event
 
 
 def create_operational_records(db: Session, practice: Practice, call: Call, normalized: CanonicalCallData) -> tuple[list[Incident], list[CallbackTask], list[IntegrationEvent]]:
     incidents: list[Incident] = []
     callback_tasks: list[CallbackTask] = []
     integration_events: list[IntegrationEvent] = []
+
+    emit_operational_event(
+        db,
+        practice_id=practice.id,
+        event_name="call.after_hours" if normalized.disposition != "missed_call" else "call.missed",
+        source="voice",
+        title=f"{normalized.disposition.replace('_', ' ')} call",
+        detail=normalized.call_summary or normalized.reason_for_call,
+        status=call.review_status,
+        severity=normalized.urgency,
+        call_id=call.id,
+        payload={
+            "disposition": normalized.disposition,
+            "urgency": normalized.urgency,
+            "caller_name": normalized.caller_name,
+            "caller_phone": normalized.caller_phone,
+        },
+    )
 
     if normalized.needs_incident:
         incident = Incident(
@@ -45,6 +64,36 @@ def create_operational_records(db: Session, practice: Practice, call: Call, norm
         callback_tasks.append(callback_task)
 
     db.flush()
+
+    for incident in incidents:
+        emit_operational_event(
+            db,
+            practice_id=practice.id,
+            event_name="incident.created",
+            source="workflow",
+            title=f"{incident.incident_type.replace('_', ' ')} incident",
+            detail=incident.summary,
+            status=incident.status,
+            severity=incident.severity,
+            call_id=call.id,
+            incident_id=incident.id,
+            payload={"details": incident.details},
+        )
+
+    for callback_task in callback_tasks:
+        emit_operational_event(
+            db,
+            practice_id=practice.id,
+            event_name="callback.created",
+            source="workflow",
+            title="Callback task created",
+            detail=callback_task.reason,
+            status=callback_task.status,
+            severity=callback_task.priority,
+            call_id=call.id,
+            callback_task_id=callback_task.id,
+            payload={"callback_phone": callback_task.callback_phone},
+        )
 
     if normalized.needs_incident and incidents:
         integration_events.append(
@@ -264,6 +313,19 @@ def create_inbound_communication_event(
             task.outcome = "patient_replied"
 
     db.flush()
+    emit_operational_event(
+        db,
+        practice_id=practice.id,
+        event_name="patient.replied",
+        source="messaging",
+        title="Patient replied",
+        detail=body,
+        status="received",
+        call_id=call_id,
+        callback_task_id=task.id if task else None,
+        communication_event_id=communication.id,
+        payload={"caller_phone": caller_phone},
+    )
     events = execute_routing_rules(
         db,
         practice=practice,
@@ -296,6 +358,20 @@ def queue_overdue_callback_recovery(
     )
     if existing_follow_up:
         return []
+
+    emit_operational_event(
+        db,
+        practice_id=practice.id,
+        event_name="callback.overdue",
+        source="workflow",
+        title="Callback overdue",
+        detail=task.reason,
+        status=task.status,
+        severity=task.priority,
+        call_id=task.call_id,
+        callback_task_id=task.id,
+        payload={"minutes_overdue": minutes_overdue, "callback_phone": task.callback_phone},
+    )
 
     message = (
         f"Hi from {practice.practice_name}. We tried reaching you about your request. "
@@ -419,6 +495,20 @@ def process_integration_events_async(event_ids: Iterable[str]) -> None:
                 event.last_error = None
                 event.processed_at = datetime.now(timezone.utc)
                 event.next_attempt_at = None
+                emit_operational_event(
+                    db,
+                    practice_id=event.practice_id,
+                    event_name="integration.sent",
+                    source="integration",
+                    title=f"{event.channel.replace('_', ' ')} {event.event_type.replace('_', ' ')}",
+                    detail=result.get("message"),
+                    status=event.status,
+                    call_id=event.call_id,
+                    incident_id=event.incident_id,
+                    callback_task_id=event.callback_task_id,
+                    integration_event_id=event.id,
+                    payload=event.payload,
+                )
         db.commit()
     finally:
         db.close()

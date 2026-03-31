@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { CallActionBar } from "@/components/call-action-bar";
-import { TopNav } from "@/components/top-nav";
 import { getCall } from "@/lib/api";
 
 function formatDateTime(value: string) {
@@ -25,8 +24,7 @@ export default async function CallDetailPage({
   }
 
   return (
-    <main className="app-shell">
-      <TopNav />
+    <div className="app-shell">
       <section className="hero hero--compact">
         <div>
           <span className="eyebrow">Call Detail</span>
@@ -164,6 +162,6 @@ export default async function CallDetailPage({
           </div>
         </article>
       </section>
-    </main>
+    </div>
   );
 }

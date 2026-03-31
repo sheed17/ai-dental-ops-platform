@@ -9,10 +9,11 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.db import get_db
-from app.models import Call, CallArtifact, CallStructuredOutput, CallbackTask, CommunicationEvent, Incident, IntegrationEvent, Practice
-from app.models import RoutingRule
+from app.models import Call, CallArtifact, CallStructuredOutput, CallbackTask, CommunicationEvent, Incident, IntegrationEvent, OperationalEvent, Practice, PracticeModule, RoutingRule
 from app.schemas import (
     AutomationRunSummary,
+    BuildChecklistItemRead,
+    BuildChecklistRead,
     CallRead,
     CallActionRequest,
     CallListItemRead,
@@ -26,8 +27,11 @@ from app.schemas import (
     OperationFeedItemRead,
     OnboardingChecklistItemRead,
     OnboardingOverviewRead,
+    OperationalEventRead,
     PracticeRead,
     PracticeIntegrationSettingRead,
+    PracticeModuleRead,
+    PracticeModuleUpdate,
     PracticeIntegrationSettingUpdate,
     PracticeSettingsUpdate,
     RoutingRuleRead,
@@ -44,6 +48,7 @@ from app.services.normalization import (
     normalize_vapi_end_of_call,
 )
 from app.services.practice_directory import get_default_practice, get_practice_by_phone
+from app.services.platform import ensure_practice_modules, emit_operational_event, upsert_practice_module
 from app.services.vapi_client import fetch_call_details
 from app.services.workflow import (
     create_inbound_communication_event,
@@ -169,82 +174,28 @@ def _serialize_routing_rule(rule: RoutingRule) -> RoutingRuleRead:
     return RoutingRuleRead.model_validate(rule, from_attributes=True)
 
 
+def _serialize_module(module: PracticeModule) -> PracticeModuleRead:
+    return PracticeModuleRead.model_validate(module, from_attributes=True)
+
+
+def _serialize_operational_event(event: OperationalEvent) -> OperationalEventRead:
+    return OperationalEventRead.model_validate(event, from_attributes=True)
+
+
 def _build_operations_feed(db: Session, limit: int = 25) -> list[OperationFeedItemRead]:
-    items: list[OperationFeedItemRead] = []
-
-    for call in db.scalars(select(Call).order_by(desc(Call.created_at)).limit(limit)).all():
-        items.append(
-            OperationFeedItemRead(
-                id=f"call:{call.id}",
-                occurred_at=call.created_at,
-                item_type="call",
-                title=f"{call.disposition.replace('_', ' ')} call",
-                detail=call.call_summary or call.reason_for_call,
-                status=call.review_status,
-                severity=call.urgency,
-                related_call_id=call.id,
-            )
+    return [
+        OperationFeedItemRead(
+            id=event.id,
+            occurred_at=event.created_at,
+            item_type=event.event_name,
+            title=event.title,
+            detail=event.detail,
+            status=event.status,
+            severity=event.severity,
+            related_call_id=event.call_id,
         )
-
-    for task in db.scalars(select(CallbackTask).order_by(desc(CallbackTask.updated_at)).limit(limit)).all():
-        items.append(
-            OperationFeedItemRead(
-                id=f"callback:{task.id}",
-                occurred_at=task.updated_at,
-                item_type="callback_task",
-                title="Callback task updated",
-                detail=task.reason,
-                status=task.status,
-                severity=task.priority,
-                related_call_id=task.call_id,
-            )
-        )
-
-    for incident in db.scalars(select(Incident).order_by(desc(Incident.created_at)).limit(limit)).all():
-        items.append(
-            OperationFeedItemRead(
-                id=f"incident:{incident.id}",
-                occurred_at=incident.created_at,
-                item_type="incident",
-                title=f"{incident.incident_type.replace('_', ' ')} incident",
-                detail=incident.summary,
-                status=incident.status,
-                severity=incident.severity,
-                related_call_id=incident.call_id,
-            )
-        )
-
-    for event in db.scalars(select(IntegrationEvent).order_by(desc(IntegrationEvent.created_at)).limit(limit)).all():
-        items.append(
-            OperationFeedItemRead(
-                id=f"event:{event.id}",
-                occurred_at=event.processed_at or event.created_at,
-                item_type="integration_event",
-                title=f"{event.channel.replace('_', ' ')} {event.event_type.replace('_', ' ')}",
-                detail=(event.payload or {}).get("message") if isinstance(event.payload, dict) else None,
-                status=event.status,
-                severity=None,
-                related_call_id=event.call_id,
-            )
-        )
-
-    for communication in db.scalars(select(CommunicationEvent).order_by(desc(CommunicationEvent.created_at)).limit(limit)).all():
-        direction_label = "reply received" if communication.direction == "inbound" else "message sent"
-        items.append(
-            OperationFeedItemRead(
-                id=f"communication:{communication.id}",
-                occurred_at=communication.created_at,
-                item_type="communication",
-                title=f"{communication.channel.upper()} {direction_label}",
-                detail=communication.body,
-                status=communication.status,
-                severity=None,
-                related_call_id=communication.call_id,
-            )
-        )
-
-    items.sort(key=lambda item: item.occurred_at, reverse=True)
-    return items[:limit]
+        for event in db.scalars(select(OperationalEvent).order_by(desc(OperationalEvent.created_at)).limit(limit)).all()
+    ]
 
 
 def _overdue_tasks(db: Session) -> list[CallbackTask]:
@@ -290,6 +241,7 @@ def _repeat_callers(db: Session, limit: int = 5) -> list[Call]:
 
 def _build_onboarding_overview(db: Session, practice: Practice) -> OnboardingOverviewRead:
     integration_settings = ensure_practice_integration_settings(db, practice)
+    modules = ensure_practice_modules(db, practice)
     integration_map = {setting.channel: setting for setting in integration_settings}
 
     def enabled(channel: str) -> bool:
@@ -297,6 +249,12 @@ def _build_onboarding_overview(db: Session, practice: Practice) -> OnboardingOve
         return bool(setting and setting.is_enabled)
 
     checklist = [
+        OnboardingChecklistItemRead(
+            key="modules",
+            label="Core modules selected",
+            completed=all(module.is_enabled for module in modules if module.module_key in {"after_hours", "callback_manager"}),
+            detail="The practice has the core operational modules enabled.",
+        ),
         OnboardingChecklistItemRead(
             key="practice_profile",
             label="Practice profile completed",
@@ -342,6 +300,25 @@ def _build_onboarding_overview(db: Session, practice: Practice) -> OnboardingOve
         completed_steps=completed_steps,
         total_steps=len(checklist),
         checklist=checklist,
+    )
+
+
+def _build_platform_checklist() -> BuildChecklistRead:
+    return BuildChecklistRead(
+        built=[
+            BuildChecklistItemRead(key="event_abstraction", status="built", label="Event abstraction layer", detail="Operational events are standardized and stored."),
+            BuildChecklistItemRead(key="workflow_routing", status="built", label="Workflow routing layer", detail="Per-practice routing rules execute against workflow triggers."),
+            BuildChecklistItemRead(key="module_layer", status="built", label="Module abstraction layer", detail="Practices have enable/disable modules for core platform behaviors."),
+            BuildChecklistItemRead(key="unified_feed", status="built", label="Unified event feed", detail="The operations feed is driven by first-class operational events."),
+            BuildChecklistItemRead(key="connector_abstraction", status="built", label="Connector abstraction", detail="Voice, messaging, email alerts, Slack-capable alerts, and CRM placeholders sit behind connectors."),
+        ],
+        pending=[
+            BuildChecklistItemRead(key="crm_live", status="pending", label="Live CRM integrations", detail="HubSpot/GHL/Salesforce need real sync implementations."),
+            BuildChecklistItemRead(key="scheduling_live", status="pending", label="Live scheduling integrations", detail="NextHealth/OpenDental and scheduling connectors still need lightweight production integrations."),
+            BuildChecklistItemRead(key="module_first_onboarding", status="pending", label="Module-first onboarding UI", detail="The onboarding flow should start with module selection and connector setup."),
+            BuildChecklistItemRead(key="automation_scheduler", status="pending", label="Automated scheduler", detail="Recovery and escalation automation should run automatically on a worker/cron."),
+            BuildChecklistItemRead(key="owner_summary", status="pending", label="Owner summary mode", detail="A simplified owner-facing summary layer still needs to be added."),
+        ],
     )
 
 
@@ -517,6 +494,18 @@ def missed_call_recovery(
     )
     db.add(call)
     db.flush()
+    emit_operational_event(
+        db,
+        practice_id=practice.id,
+        event_name="call.missed",
+        source="telephony",
+        title="Missed call",
+        detail="Missed call recovery was triggered during business hours.",
+        status=call.review_status,
+        severity="routine",
+        call_id=call.id,
+        payload={"caller_phone": caller_phone, "caller_name": payload.get("callerName")},
+    )
 
     task = CallbackTask(
         practice_id=practice.id,
@@ -530,6 +519,19 @@ def missed_call_recovery(
     )
     db.add(task)
     db.flush()
+    emit_operational_event(
+        db,
+        practice_id=practice.id,
+        event_name="callback.created",
+        source="workflow",
+        title="Callback task created",
+        detail=task.reason,
+        status=task.status,
+        severity=task.priority,
+        call_id=call.id,
+        callback_task_id=task.id,
+        payload={"callback_phone": task.callback_phone},
+    )
 
     event_ids: list[str] = []
     if practice.missed_call_recovery_enabled:
@@ -694,6 +696,35 @@ def list_practice_settings(db: Session = Depends(get_db)) -> list[PracticeRead]:
     return [_serialize_practice(practice) for practice in practices]
 
 
+@router.get("/practices/{practice_id}/modules", response_model=list[PracticeModuleRead])
+def list_practice_modules(practice_id: str, db: Session = Depends(get_db)) -> list[PracticeModuleRead]:
+    practice = db.get(Practice, practice_id)
+    if not practice:
+        raise HTTPException(status_code=404, detail="Practice not found.")
+    modules = ensure_practice_modules(db, practice)
+    return [_serialize_module(module) for module in modules]
+
+
+@router.put("/practices/{practice_id}/modules/{module_key}", response_model=PracticeModuleRead)
+def update_practice_module(
+    practice_id: str,
+    module_key: str,
+    payload: PracticeModuleUpdate,
+    db: Session = Depends(get_db),
+) -> PracticeModuleRead:
+    practice = db.get(Practice, practice_id)
+    if not practice:
+        raise HTTPException(status_code=404, detail="Practice not found.")
+    module = upsert_practice_module(
+        db,
+        practice,
+        module_key,
+        is_enabled=payload.is_enabled,
+        config_json=payload.config_json,
+    )
+    return _serialize_module(module)
+
+
 @router.patch("/practice-settings/{practice_id}", response_model=PracticeRead)
 def update_practice_settings(
     practice_id: str,
@@ -717,6 +748,12 @@ def update_practice_settings(
 def list_integration_events(db: Session = Depends(get_db)) -> list[IntegrationEventRead]:
     events = db.scalars(select(IntegrationEvent).order_by(desc(IntegrationEvent.created_at))).all()
     return [IntegrationEventRead.model_validate(event, from_attributes=True) for event in events]
+
+
+@router.get("/events", response_model=list[OperationalEventRead])
+def list_operational_events(limit: int = 100, db: Session = Depends(get_db)) -> list[OperationalEventRead]:
+    events = db.scalars(select(OperationalEvent).order_by(desc(OperationalEvent.created_at)).limit(limit)).all()
+    return [_serialize_operational_event(event) for event in events]
 
 
 @router.get("/communications", response_model=list[CommunicationEventRead])
@@ -773,6 +810,11 @@ def process_pending_events(limit: int = 50) -> dict[str, int]:
 def run_recovery_automation(limit: int = 50) -> AutomationRunSummary:
     queued_event_ids = process_callback_recovery_automation(limit=limit)
     return AutomationRunSummary(processed_tasks=len(queued_event_ids), queued_event_ids=queued_event_ids)
+
+
+@router.get("/platform/checklist", response_model=BuildChecklistRead)
+def platform_checklist() -> BuildChecklistRead:
+    return _build_platform_checklist()
 
 
 @router.get("/integrations/catalog", response_model=list[IntegrationCatalogItemRead])

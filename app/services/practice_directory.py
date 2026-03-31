@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Practice, PracticePhoneNumber, RoutingRule
+from app.services.platform import ensure_practice_modules
 
 
 @dataclass(frozen=True)
@@ -131,6 +132,8 @@ def seed_practices(db: Session) -> None:
                 ),
             ]
         )
+        db.flush()
+        ensure_practice_modules(db, practice, commit=False)
 
     db.commit()
 

@@ -1,15 +1,15 @@
 import { OnboardingWizard } from "@/components/onboarding-wizard";
-import { TopNav } from "@/components/top-nav";
-import { getOnboardingOverview, getPracticeSettings } from "@/lib/api";
+import { getOnboardingOverview, getPracticeModules, getPracticeSettings } from "@/lib/api";
 
 export default async function OnboardingPage() {
   const practices = await getPracticeSettings();
   const activePractice = practices[0] ?? null;
-  const overview = activePractice ? await getOnboardingOverview(activePractice.id) : null;
+  const [overview, modules] = activePractice
+    ? await Promise.all([getOnboardingOverview(activePractice.id), getPracticeModules(activePractice.id)])
+    : [null, []];
 
   return (
-    <main className="app-shell">
-      <TopNav />
+    <div className="app-shell">
       <section className="hero hero--compact">
         <div>
           <span className="eyebrow">Go-Live Checklist</span>
@@ -30,7 +30,7 @@ export default async function OnboardingPage() {
         ) : null}
       </section>
 
-      {activePractice && overview ? <OnboardingWizard practice={activePractice} overview={overview} /> : null}
-    </main>
+      {activePractice && overview ? <OnboardingWizard practice={activePractice} overview={overview} modules={modules} /> : null}
+    </div>
   );
 }

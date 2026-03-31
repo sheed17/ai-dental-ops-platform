@@ -35,6 +35,8 @@ uvicorn app.main:app --reload
 - `TWILIO_MESSAGING_SERVICE_SID`
 - `TWILIO_FROM_NUMBER`
 - `SEED_DEMO_DATA`
+- `AUTOMATION_POLL_INTERVAL_SECONDS`
+- `AUTOMATION_RUN_ON_STARTUP`
 
 ## Core routes
 
@@ -57,6 +59,30 @@ uvicorn app.main:app --reload
 
 - `GET /`
 - `GET /calls/{call_id}`
+
+## Worker process
+
+The platform now supports a dedicated automation worker for:
+
+- processing queued integration events
+- running overdue callback recovery automation
+
+Run it locally with:
+
+```bash
+python3 -m app.worker
+```
+
+On Railway or other Procfile-based platforms, the worker process is declared as:
+
+```text
+worker: python3 -m app.worker
+```
+
+Recommended production setup:
+
+- `web` process for FastAPI
+- `worker` process for automation/event processing
 
 ## GitHub Pages legal docs
 
