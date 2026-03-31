@@ -92,6 +92,7 @@ class Call(Base):
     structured_outputs: Mapped[list[CallStructuredOutput]] = relationship(back_populates="call", cascade="all, delete-orphan")
     incidents: Mapped[list[Incident]] = relationship(back_populates="call", cascade="all, delete-orphan")
     callback_tasks: Mapped[list[CallbackTask]] = relationship(back_populates="call", cascade="all, delete-orphan")
+    communication_events: Mapped[list[CommunicationEvent]] = relationship(back_populates="call", cascade="all, delete-orphan")
 
 
 class CallArtifact(Base):
@@ -158,6 +159,28 @@ class CallbackTask(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     call: Mapped[Call | None] = relationship(back_populates="callback_tasks")
+    communication_events: Mapped[list[CommunicationEvent]] = relationship(back_populates="callback_task", cascade="all, delete-orphan")
+
+
+class CommunicationEvent(Base):
+    __tablename__ = "communication_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    practice_id: Mapped[str] = mapped_column(ForeignKey("practices.id"), index=True)
+    call_id: Mapped[str | None] = mapped_column(ForeignKey("calls.id"), nullable=True, index=True)
+    callback_task_id: Mapped[str | None] = mapped_column(ForeignKey("callback_tasks.id"), nullable=True, index=True)
+    channel: Mapped[str] = mapped_column(String(50), default="sms")
+    direction: Mapped[str] = mapped_column(String(20), default="outbound")
+    event_type: Mapped[str] = mapped_column(String(100), default="message")
+    counterpart: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    call: Mapped[Call | None] = relationship(back_populates="communication_events")
+    callback_task: Mapped[CallbackTask | None] = relationship(back_populates="communication_events")
 
 
 class IntegrationSetting(Base):

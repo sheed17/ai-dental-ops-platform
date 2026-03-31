@@ -121,6 +121,14 @@ def seed_practices(db: Session) -> None:
                     action_json={"channel": "sms", "event_type": "staff_callback_notification"},
                     is_enabled=False,
                 ),
+                RoutingRule(
+                    practice_id=practice.id,
+                    name="Patient replied after hours",
+                    trigger_event="messaging.inbound_reply",
+                    condition_json=None,
+                    action_json={"channel": "internal_alert", "event_type": "patient_reply_alert"},
+                    is_enabled=True,
+                ),
             ]
         )
 

@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import IntegrationEvent, IntegrationSetting
+from app.models import CommunicationEvent, IntegrationEvent, IntegrationSetting
 from app.services.integration_catalog import get_integration_capability
 
 
@@ -85,6 +85,21 @@ class TwilioManagedSMSAdapter:
             )
             response.raise_for_status()
             response_payload = response.json()
+            db.add(
+                CommunicationEvent(
+                    practice_id=event.practice_id,
+                    call_id=event.call_id,
+                    callback_task_id=event.callback_task_id,
+                    channel="sms",
+                    direction="outbound",
+                    event_type=event.event_type,
+                    counterpart=to_number,
+                    body=message_body,
+                    status="sent",
+                    external_id=response_payload.get("sid"),
+                    metadata_json={"provider": self.provider},
+                )
+            )
             return {
                 "status": "processed",
                 "provider": self.provider,
@@ -93,6 +108,21 @@ class TwilioManagedSMSAdapter:
                 "sid": response_payload.get("sid"),
             }
 
+        db.add(
+            CommunicationEvent(
+                practice_id=event.practice_id,
+                call_id=event.call_id,
+                callback_task_id=event.callback_task_id,
+                channel="sms",
+                direction="outbound",
+                event_type=event.event_type,
+                counterpart=to_number,
+                body=message_body,
+                status="simulated",
+                external_id=None,
+                metadata_json={"provider": self.provider, "simulated": True},
+            )
+        )
         return {
             "status": "processed",
             "provider": self.provider,

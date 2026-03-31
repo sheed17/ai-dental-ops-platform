@@ -1,3 +1,4 @@
+import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { TopNav } from "@/components/top-nav";
 import { getOnboardingOverview, getPracticeSettings } from "@/lib/api";
 
@@ -29,22 +30,7 @@ export default async function OnboardingPage() {
         ) : null}
       </section>
 
-      <section className="stack-list">
-        {overview?.checklist.map((item) => (
-          <article key={item.key} className="panel">
-            <div className="queue-card__header">
-              <div>
-                <span className="eyebrow">Checklist Item</span>
-                <h2>{item.label}</h2>
-              </div>
-              <span className={`pill pill--${item.completed ? "routine" : "high"}`}>
-                {item.completed ? "complete" : "needs setup"}
-              </span>
-            </div>
-            <p className="queue-card__reason">{item.detail}</p>
-          </article>
-        ))}
-      </section>
+      {activePractice && overview ? <OnboardingWizard practice={activePractice} overview={overview} /> : null}
     </main>
   );
 }

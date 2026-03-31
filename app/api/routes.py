@@ -3,20 +3,22 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.db import get_db
-from app.models import Call, CallArtifact, CallStructuredOutput, CallbackTask, Incident, IntegrationEvent, Practice
+from app.models import Call, CallArtifact, CallStructuredOutput, CallbackTask, CommunicationEvent, Incident, IntegrationEvent, Practice
 from app.models import RoutingRule
 from app.schemas import (
+    AutomationRunSummary,
     CallRead,
     CallActionRequest,
     CallListItemRead,
     CallbackTaskRead,
     CallbackTaskUpdate,
+    CommunicationEventRead,
     DashboardSummary,
     IncidentRead,
     IntegrationCatalogItemRead,
@@ -30,6 +32,7 @@ from app.schemas import (
     PracticeSettingsUpdate,
     RoutingRuleRead,
     RoutingRuleUpdate,
+    TwilioInboundMessageRead,
 )
 from app.services.integration_catalog import list_integration_capabilities
 from app.services.integration_settings import ensure_practice_integration_settings, upsert_practice_integration_setting
@@ -42,7 +45,12 @@ from app.services.normalization import (
 )
 from app.services.practice_directory import get_default_practice, get_practice_by_phone
 from app.services.vapi_client import fetch_call_details
-from app.services.workflow import create_operational_records, process_integration_events_async
+from app.services.workflow import (
+    create_inbound_communication_event,
+    create_operational_records,
+    process_callback_recovery_automation,
+    process_integration_events_async,
+)
 
 
 router = APIRouter(prefix="/api/v1")
@@ -217,6 +225,21 @@ def _build_operations_feed(db: Session, limit: int = 25) -> list[OperationFeedIt
                 status=event.status,
                 severity=None,
                 related_call_id=event.call_id,
+            )
+        )
+
+    for communication in db.scalars(select(CommunicationEvent).order_by(desc(CommunicationEvent.created_at)).limit(limit)).all():
+        direction_label = "reply received" if communication.direction == "inbound" else "message sent"
+        items.append(
+            OperationFeedItemRead(
+                id=f"communication:{communication.id}",
+                occurred_at=communication.created_at,
+                item_type="communication",
+                title=f"{communication.channel.upper()} {direction_label}",
+                detail=communication.body,
+                status=communication.status,
+                severity=None,
+                related_call_id=communication.call_id,
             )
         )
 
@@ -533,6 +556,51 @@ def missed_call_recovery(
     return {"status": "stored", "callId": call.id, "callbackTaskId": task.id, "integrationEventCount": len(event_ids)}
 
 
+@router.post("/twilio/inbound-message", response_model=TwilioInboundMessageRead)
+async def twilio_inbound_message(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> TwilioInboundMessageRead:
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        payload = await request.json()
+    else:
+        form = await request.form()
+        payload = dict(form)
+
+    to_number = payload.get("To") or payload.get("to")
+    from_number = payload.get("From") or payload.get("from")
+    body = payload.get("Body") or payload.get("body")
+    message_sid = payload.get("MessageSid") or payload.get("messageSid")
+
+    if not isinstance(to_number, str) or not isinstance(from_number, str) or not isinstance(body, str):
+        raise HTTPException(status_code=400, detail="To, From, and Body are required.")
+
+    _, practice = get_practice_by_phone(db, to_number)
+    if not practice:
+        practice = get_default_practice(db)
+    if not practice:
+        raise HTTPException(status_code=404, detail="Practice not found for inbound message.")
+
+    communication, callback_task, events = create_inbound_communication_event(
+        db,
+        practice=practice,
+        caller_phone=from_number,
+        body=body,
+        external_id=message_sid if isinstance(message_sid, str) else None,
+    )
+    db.commit()
+    if events:
+        background_tasks.add_task(process_integration_events_async, [event.id for event in events])
+
+    return TwilioInboundMessageRead(
+        status="stored",
+        communication_event_id=communication.id,
+        callback_task_id=callback_task.id if callback_task else None,
+    )
+
+
 @router.get("/calls", response_model=list[CallRead])
 def list_calls(db: Session = Depends(get_db)) -> list[CallRead]:
     calls = db.scalars(
@@ -651,6 +719,12 @@ def list_integration_events(db: Session = Depends(get_db)) -> list[IntegrationEv
     return [IntegrationEventRead.model_validate(event, from_attributes=True) for event in events]
 
 
+@router.get("/communications", response_model=list[CommunicationEventRead])
+def list_communications(db: Session = Depends(get_db)) -> list[CommunicationEventRead]:
+    events = db.scalars(select(CommunicationEvent).order_by(desc(CommunicationEvent.created_at))).all()
+    return [CommunicationEventRead.model_validate(event, from_attributes=True) for event in events]
+
+
 @router.get("/operations/feed", response_model=list[OperationFeedItemRead])
 def operations_feed(limit: int = 25, db: Session = Depends(get_db)) -> list[OperationFeedItemRead]:
     return _build_operations_feed(db, limit=limit)
@@ -693,6 +767,12 @@ def process_pending_events(limit: int = 50) -> dict[str, int]:
 
     processed = process_pending_integration_events(limit=limit)
     return {"processed": processed}
+
+
+@router.post("/automation/recovery/run", response_model=AutomationRunSummary)
+def run_recovery_automation(limit: int = 50) -> AutomationRunSummary:
+    queued_event_ids = process_callback_recovery_automation(limit=limit)
+    return AutomationRunSummary(processed_tasks=len(queued_event_ids), queued_event_ids=queued_event_ids)
 
 
 @router.get("/integrations/catalog", response_model=list[IntegrationCatalogItemRead])

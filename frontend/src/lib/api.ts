@@ -25,6 +25,13 @@ export type CallbackTask = {
   completed_at: string | null;
 };
 
+export type CallbackTaskUpdate = {
+  status: string;
+  assigned_to?: string | null;
+  internal_notes?: string | null;
+  outcome?: string | null;
+};
+
 export type CallArtifact = {
   id: string;
   artifact_type: string;
@@ -160,6 +167,22 @@ export type RoutingRule = {
   created_at: string;
 };
 
+export type RoutingRuleUpdate = {
+  name: string;
+  trigger_event: string;
+  condition_json?: Record<string, unknown> | null;
+  action_json: Record<string, unknown>;
+  is_enabled: boolean;
+};
+
+export type PracticeSettingsUpdate = {
+  scheduling_mode: string;
+  insurance_mode: string;
+  missed_call_recovery_enabled: boolean;
+  missed_call_recovery_message?: string | null;
+  callback_sla_minutes: number;
+};
+
 const API_BASE_URL =
   process.env.API_BASE_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
@@ -245,5 +268,33 @@ export async function performCallAction(callId: string, action: string, note?: s
   return apiMutation<Record<string, unknown>>(`/calls/${callId}/actions`, {
     method: "POST",
     body: JSON.stringify({ action, note }),
+  });
+}
+
+export async function updateCallbackTask(taskId: string, payload: CallbackTaskUpdate): Promise<CallbackTask> {
+  return apiMutation<CallbackTask>(`/callback-tasks/${taskId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateRoutingRule(
+  practiceId: string,
+  ruleId: string,
+  payload: RoutingRuleUpdate,
+): Promise<RoutingRule> {
+  return apiMutation<RoutingRule>(`/practices/${practiceId}/routing-rules/${ruleId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updatePracticeSettings(
+  practiceId: string,
+  payload: PracticeSettingsUpdate,
+): Promise<Practice> {
+  return apiMutation<Practice>(`/practice-settings/${practiceId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
   });
 }

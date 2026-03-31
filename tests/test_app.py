@@ -387,6 +387,93 @@ def test_operations_feed_and_routing_rules_are_available(client):
     assert len(rules.json()) >= 1
 
 
+def test_twilio_inbound_message_creates_communication_and_updates_task(client):
+    create = client.post(
+        "/api/v1/telephony/missed-call",
+        json={
+            "calledNumber": "+12282832484",
+            "callerPhone": "+15125550123",
+            "callerName": "Reply Person",
+        },
+    )
+    assert create.status_code == 200
+
+    inbound = client.post(
+        "/api/v1/twilio/inbound-message",
+        json={
+            "To": "+12282832484",
+            "From": "+15125550123",
+            "Body": "Call me tomorrow morning please",
+            "MessageSid": "SM123",
+        },
+    )
+    assert inbound.status_code == 200
+    body = inbound.json()
+    assert body["status"] == "stored"
+
+    communications = client.get("/api/v1/communications")
+    assert communications.status_code == 200
+    assert communications.json()[0]["direction"] == "inbound"
+
+    tasks = client.get("/api/v1/callback-tasks").json()
+    assert tasks[0]["status"] == "in_progress"
+    assert "Call me tomorrow morning please" in (tasks[0]["internal_notes"] or "")
+
+
+def test_recovery_automation_queues_follow_up_for_overdue_callback(client):
+    create = client.post(
+        "/api/v1/telephony/missed-call",
+        json={
+            "calledNumber": "+12282832484",
+            "callerPhone": "+15125550124",
+            "callerName": "Overdue Person",
+        },
+    )
+    assert create.status_code == 200
+
+    from app.db import SessionLocal
+    from app.models import CallbackTask
+    from datetime import datetime, timedelta, timezone
+
+    db = SessionLocal()
+    try:
+        task = db.query(CallbackTask).first()
+        task.created_at = datetime.now(timezone.utc) - timedelta(hours=3)
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.post("/api/v1/automation/recovery/run")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["processed_tasks"] >= 1
+
+    events = client.get("/api/v1/integration-events").json()
+    assert any(event["event_type"] == "callback_recovery_follow_up" for event in events)
+
+
+def test_operations_feed_includes_communication_events(client):
+    client.post(
+        "/api/v1/telephony/missed-call",
+        json={
+            "calledNumber": "+12282832484",
+            "callerPhone": "+15125550125",
+            "callerName": "Timeline Person",
+        },
+    )
+    client.post(
+        "/api/v1/twilio/inbound-message",
+        json={
+            "To": "+12282832484",
+            "From": "+15125550125",
+            "Body": "Need help booking",
+        },
+    )
+
+    feed = client.get("/api/v1/operations/feed").json()
+    assert any(item["item_type"] == "communication" for item in feed)
+
+
 def test_call_actions_mark_handled_and_schedule_callback(client):
     create = client.post(
         "/api/v1/vapi/end-of-call",

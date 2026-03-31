@@ -130,6 +130,18 @@ class IntegrationEventRead(BaseModel):
     processed_at: datetime | None
 
 
+class CommunicationEventRead(BaseModel):
+    id: str
+    channel: str
+    direction: str
+    event_type: str
+    counterpart: str | None
+    body: str | None
+    status: str | None
+    external_id: str | None
+    created_at: datetime
+
+
 class DashboardSummary(BaseModel):
     recent_calls: list[CallRead]
     urgent_incidents: list[IncidentRead]
@@ -212,3 +224,14 @@ class OperationFeedItemRead(BaseModel):
 class CallActionRequest(BaseModel):
     action: str
     note: str | None = None
+
+
+class AutomationRunSummary(BaseModel):
+    processed_tasks: int
+    queued_event_ids: list[str]
+
+
+class TwilioInboundMessageRead(BaseModel):
+    status: str
+    communication_event_id: str
+    callback_task_id: str | None = None

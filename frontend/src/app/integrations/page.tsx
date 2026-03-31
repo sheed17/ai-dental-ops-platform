@@ -1,3 +1,4 @@
+import { RoutingRulesEditor } from "@/components/routing-rules-editor";
 import { TopNav } from "@/components/top-nav";
 import { getIntegrationCatalog, getPracticeIntegrations, getPracticeSettings, getRoutingRules } from "@/lib/api";
 
@@ -65,22 +66,7 @@ export default async function IntegrationsPage() {
             <h2>Simple automation, not a Zapier clone</h2>
           </div>
         </div>
-        <div className="stack-list">
-          {routingRules.map((rule) => (
-            <div key={rule.id} className="stack-item">
-              <div className="stack-item__top">
-                <strong>{rule.name}</strong>
-                <span className={`pill pill--${rule.is_enabled ? "routine" : "high"}`}>
-                  {rule.is_enabled ? "enabled" : "disabled"}
-                </span>
-              </div>
-              <p>
-                When <strong>{rule.trigger_event.replaceAll("_", " ")}</strong>, then route to{" "}
-                <strong>{String(rule.action_json.channel || "workflow")}</strong>.
-              </p>
-            </div>
-          ))}
-        </div>
+        {activePractice ? <RoutingRulesEditor practiceId={activePractice.id} initialRules={routingRules} /> : null}
       </section>
     </main>
   );

@@ -418,6 +418,45 @@ th {
   gap: 16px;
 }
 
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.field input,
+.field textarea,
+.field select,
+.inline-input {
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #0b1119;
+  color: var(--ink);
+}
+
+.inline-input {
+  margin-top: 8px;
+}
+
+.toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+}
+
 .queue-card__reason {
   margin: 14px 0 8px;
   line-height: 1.6;
@@ -583,6 +622,57 @@ th {
   gap: 10px;
 }
 
+.wizard {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 20px;
+}
+
+.wizard__rail {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.wizard__step {
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card-soft);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.wizard__step span {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  align-items: center;
+  justify-content: center;
+  margin-right: 10px;
+  background: #0b1119;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.wizard__step--active {
+  border-color: rgba(38, 214, 184, 0.28);
+  background: rgba(38, 214, 184, 0.08);
+}
+
+.wizard__panel {
+  min-height: 420px;
+}
+
+.wizard__actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 22px;
+}
+
 @media (max-width: 980px) {
   .app-shell {
     margin-left: 0;
@@ -602,7 +692,9 @@ th {
   .content-grid,
   .metrics-grid,
   .queue-grid,
-  .settings-grid {
+  .settings-grid,
+  .form-grid,
+  .wizard {
     grid-template-columns: 1fr;
   }
 
