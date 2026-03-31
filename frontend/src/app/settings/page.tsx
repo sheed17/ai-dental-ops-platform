@@ -1,59 +1,45 @@
+import { CommandShell } from "@/components/command-shell";
 import { getPracticeSettings } from "@/lib/api";
 
 export default async function SettingsPage() {
   const practices = await getPracticeSettings();
 
   return (
-    <div className="app-shell">
-      <section className="hero hero--compact">
-        <div>
-          <span className="eyebrow">Practice Settings</span>
-          <h1>Office behavior should be simple to understand and easy to tune.</h1>
-          <p>
-            These are the settings a practice owner should recognize immediately: hours,
-            emergency posture, callback timing, scheduling mode, and insurance behavior.
-          </p>
-        </div>
-      </section>
-
-      <section className="stack-list">
+    <CommandShell title="Practice settings" activeHref="/settings">
+      <div className="grid gap-4">
         {practices.map((practice) => (
-          <article key={practice.id} className="panel">
-            <div className="panel__header">
-              <div>
-                <span className="eyebrow">Practice Profile</span>
-                <h2>{practice.practice_name}</h2>
+          <article key={practice.id} className="rounded-[12px] border border-[var(--border)] bg-[var(--surface)] p-4">
+            <div className="text-[11px] font-medium uppercase tracking-[0.05em] text-[var(--text-tertiary)]">Practice profile</div>
+            <h2 className="mt-2 text-[20px] font-semibold tracking-[-0.4px]">{practice.practice_name}</h2>
+            <div className="mt-4 grid grid-cols-3 gap-3">
+              <div className="rounded-[8px] border border-[var(--border)] bg-[var(--bg)] p-3">
+                <div className="text-[10px] uppercase tracking-[0.05em] text-[var(--text-tertiary)]">Office hours</div>
+                <div className="mt-1 text-[12px] text-[var(--text-primary)]">{practice.office_hours}</div>
               </div>
-            </div>
-            <div className="settings-grid">
-              <div className="stack-item">
-                <strong>Office Hours</strong>
-                <p>{practice.office_hours}</p>
+              <div className="rounded-[8px] border border-[var(--border)] bg-[var(--bg)] p-3">
+                <div className="text-[10px] uppercase tracking-[0.05em] text-[var(--text-tertiary)]">Emergency number</div>
+                <div className="mt-1 text-[12px] text-[var(--text-primary)]">{practice.emergency_number}</div>
               </div>
-              <div className="stack-item">
-                <strong>Emergency Number</strong>
-                <p>{practice.emergency_number}</p>
+              <div className="rounded-[8px] border border-[var(--border)] bg-[var(--bg)] p-3">
+                <div className="text-[10px] uppercase tracking-[0.05em] text-[var(--text-tertiary)]">Callback SLA</div>
+                <div className="mt-1 text-[12px] text-[var(--text-primary)]">{practice.callback_sla_minutes} minutes</div>
               </div>
-              <div className="stack-item">
-                <strong>Scheduling Mode</strong>
-                <p>{practice.scheduling_mode.replaceAll("_", " ")}</p>
+              <div className="rounded-[8px] border border-[var(--border)] bg-[var(--bg)] p-3">
+                <div className="text-[10px] uppercase tracking-[0.05em] text-[var(--text-tertiary)]">Scheduling mode</div>
+                <div className="mt-1 text-[12px] capitalize text-[var(--text-primary)]">{practice.scheduling_mode.replaceAll("_", " ")}</div>
               </div>
-              <div className="stack-item">
-                <strong>Insurance Mode</strong>
-                <p>{practice.insurance_mode.replaceAll("_", " ")}</p>
+              <div className="rounded-[8px] border border-[var(--border)] bg-[var(--bg)] p-3">
+                <div className="text-[10px] uppercase tracking-[0.05em] text-[var(--text-tertiary)]">Insurance mode</div>
+                <div className="mt-1 text-[12px] capitalize text-[var(--text-primary)]">{practice.insurance_mode.replaceAll("_", " ")}</div>
               </div>
-              <div className="stack-item">
-                <strong>Callback SLA</strong>
-                <p>{practice.callback_sla_minutes} minutes</p>
-              </div>
-              <div className="stack-item">
-                <strong>Missed-Call Recovery</strong>
-                <p>{practice.missed_call_recovery_enabled ? "Enabled" : "Disabled"}</p>
+              <div className="rounded-[8px] border border-[var(--border)] bg-[var(--bg)] p-3">
+                <div className="text-[10px] uppercase tracking-[0.05em] text-[var(--text-tertiary)]">Recovery</div>
+                <div className="mt-1 text-[12px] text-[var(--text-primary)]">{practice.missed_call_recovery_enabled ? "Enabled" : "Disabled"}</div>
               </div>
             </div>
           </article>
         ))}
-      </section>
-    </div>
+      </div>
+    </CommandShell>
   );
 }

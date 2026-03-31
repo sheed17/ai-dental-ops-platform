@@ -6,29 +6,30 @@
 }
 
 :root {
-  --bg: #f7f6f3;
-  --surface: #ffffff;
-  --surface2: #f2f1ee;
-  --border: rgba(0, 0, 0, 0.08);
-  --border-med: rgba(0, 0, 0, 0.13);
-  --text-primary: #1a1917;
-  --text-secondary: #6b6a66;
-  --text-tertiary: #a09f9a;
-  --red: #c0392b;
-  --red-bg: #fdf2f1;
-  --red-mid: #e8958e;
-  --amber: #9a6500;
-  --amber-bg: #fdf6e8;
-  --amber-mid: #e6b95a;
-  --blue: #1a4f8a;
-  --blue-bg: #eef4fc;
-  --blue-mid: #7aabd4;
-  --green: #1e5c2e;
-  --green-bg: #eef6f0;
-  --green-mid: #6db882;
-  --pink: #7a2043;
-  --pink-bg: #fdf0f5;
-  --pink-mid: #cc7fa0;
+  --bg: #0b0d12;
+  --surface: #11141b;
+  --surface2: #171b24;
+  --surface3: #1d2330;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-med: rgba(255, 255, 255, 0.14);
+  --text-primary: #f3f5f8;
+  --text-secondary: #a2acbb;
+  --text-tertiary: #6f7886;
+  --red: #ff7768;
+  --red-bg: rgba(255, 119, 104, 0.12);
+  --red-mid: #ff8d7f;
+  --amber: #ffbf66;
+  --amber-bg: rgba(255, 191, 102, 0.12);
+  --amber-mid: #ffc978;
+  --blue: #78b7ff;
+  --blue-bg: rgba(120, 183, 255, 0.14);
+  --blue-mid: #8bc2ff;
+  --green: #61d59a;
+  --green-bg: rgba(97, 213, 154, 0.12);
+  --green-mid: #7be0ac;
+  --pink: #e88ac1;
+  --pink-bg: rgba(232, 138, 193, 0.12);
+  --pink-mid: #f0a1d0;
   --sidebar-w: 216px;
   --font: "DM Sans", sans-serif;
   --mono: "DM Mono", monospace;
@@ -128,7 +129,7 @@ button {
   height: 32px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--surface2);
   color: var(--text-secondary);
   display: inline-flex;
   align-items: center;
@@ -140,21 +141,21 @@ button {
 }
 
 .ops-button:hover {
-  background: var(--surface2);
+  background: var(--surface3);
   border-color: var(--border-med);
   color: var(--text-primary);
 }
 
 .ops-button--primary {
-  background: var(--text-primary);
-  border-color: var(--text-primary);
-  color: #fff;
+  background: #f3f5f8;
+  border-color: #f3f5f8;
+  color: #0b0d12;
 }
 
 .ops-button--primary:hover {
-  background: #2c2a27;
-  border-color: #2c2a27;
-  color: #fff;
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #0b0d12;
 }
 
 .pulse-dot {

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { CallActionBar } from "@/components/call-action-bar";
+import { CommandShell } from "@/components/command-shell";
 import { getCall } from "@/lib/api";
 
 function formatDateTime(value: string) {
@@ -19,149 +19,76 @@ export default async function CallDetailPage({
   const { callId } = await params;
   const call = await getCall(callId).catch(() => null);
 
-  if (!call) {
-    notFound();
-  }
+  if (!call) notFound();
 
   return (
-    <div className="app-shell">
-      <section className="hero hero--compact">
-        <div>
-          <span className="eyebrow">Call Detail</span>
-          <h1>{call.caller_name || "Unknown caller"}</h1>
-          <p>{call.call_summary || call.reason_for_call || "Call detail and workflow context."}</p>
-        </div>
-        <aside className="hero-card">
-          <span className="eyebrow">Call Snapshot</span>
-          <dl>
+    <CommandShell title="Call detail" activeHref="/callbacks">
+      <div className="grid gap-4">
+        <div className="rounded-[12px] border border-[var(--border)] bg-[var(--surface)] p-4">
+          <div className="flex items-start justify-between gap-4">
             <div>
-              <dt>Disposition</dt>
-              <dd>{call.disposition.replaceAll("_", " ")}</dd>
+              <div className="text-[11px] font-medium uppercase tracking-[0.05em] text-[var(--text-tertiary)]">Call detail</div>
+              <h2 className="mt-2 text-[22px] font-semibold tracking-[-0.4px]">{call.caller_name || "Unknown caller"}</h2>
+              <p className="mt-2 max-w-[720px] text-[13px] leading-6 text-[var(--text-secondary)]">
+                {call.call_summary || call.reason_for_call || "Call detail and workflow context."}
+              </p>
             </div>
-            <div>
-              <dt>Urgency</dt>
-              <dd>{call.urgency}</dd>
-            </div>
-            <div>
-              <dt>Caller phone</dt>
-              <dd>{call.caller_phone || "No phone captured"}</dd>
-            </div>
-            <div>
-              <dt>Created</dt>
-              <dd>{formatDateTime(call.created_at)}</dd>
-            </div>
-          </dl>
-        </aside>
-      </section>
-
-      <section className="content-grid">
-        <article className="panel panel--wide">
-          <div className="panel__header">
-            <div>
-              <span className="eyebrow">Transcript & Recording</span>
-              <h2>Review what actually happened</h2>
-            </div>
-            <Link href="/callbacks" className="text-link">
+            <Link href="/callbacks" className="ops-button">
               Back to queue
             </Link>
           </div>
+        </div>
 
-          <CallActionBar callId={call.id} />
-
-          {call.recording_url ? (
-            <div className="recording-player">
-              <audio controls src={call.recording_url}>
-                Your browser does not support audio playback.
-              </audio>
-              <a href={call.recording_url} target="_blank" rel="noreferrer" className="text-link">
-                Open recording
-              </a>
-            </div>
-          ) : (
-            <p className="empty-state">No recording URL stored for this call yet.</p>
-          )}
-
-          <div className="transcript-card">
-            <h3>Transcript</h3>
-            <pre>{call.transcript || "Transcript not yet available for this call."}</pre>
-          </div>
-        </article>
-
-        <article className="panel">
-          <div className="panel__header">
-            <div>
-              <span className="eyebrow">Operational Context</span>
-              <h2>What the team should do</h2>
-            </div>
+        <div className="grid grid-cols-[1.5fr_1fr] gap-4">
+          <div className="rounded-[12px] border border-[var(--border)] bg-[var(--surface)] p-4">
+            <div className="text-[11px] font-medium uppercase tracking-[0.05em] text-[var(--text-tertiary)]">Transcript and recording</div>
+            {call.recording_url ? (
+              <div className="mt-4">
+                <audio controls src={call.recording_url} className="w-full" />
+              </div>
+            ) : null}
+            <pre className="mt-4 overflow-x-auto rounded-[8px] border border-[var(--border)] bg-[var(--bg)] p-3 text-[12px] leading-6 text-[var(--text-secondary)]">
+              {call.transcript || "Transcript not yet available for this call."}
+            </pre>
           </div>
 
-          <div className="stack-list">
-            <div className="stack-item">
-              <strong>Message for staff</strong>
-              <p>{call.message_for_staff || "No staff note was generated."}</p>
+          <div className="grid gap-4">
+            <div className="rounded-[12px] border border-[var(--border)] bg-[var(--surface)] p-4">
+              <div className="text-[11px] font-medium uppercase tracking-[0.05em] text-[var(--text-tertiary)]">Snapshot</div>
+              <div className="mt-3 grid gap-2 text-[12px] text-[var(--text-secondary)]">
+                <div>Disposition: <span className="text-[var(--text-primary)]">{call.disposition.replaceAll("_", " ")}</span></div>
+                <div>Urgency: <span className="text-[var(--text-primary)]">{call.urgency}</span></div>
+                <div>Caller: <span className="mono text-[var(--text-primary)]">{call.caller_phone || "No phone captured"}</span></div>
+                <div>Created: <span className="text-[var(--text-primary)]">{formatDateTime(call.created_at)}</span></div>
+              </div>
             </div>
 
-            <div className="stack-item">
-              <strong>Callback tasks</strong>
-              {call.callback_tasks.length ? (
-                call.callback_tasks.map((task) => (
-                  <div key={task.id} className="detail-row">
-                    <span>{task.status.replaceAll("_", " ")}</span>
-                    <span>{task.callback_phone || "No phone captured"}</span>
+            <div className="rounded-[12px] border border-[var(--border)] bg-[var(--surface)] p-4">
+              <div className="text-[11px] font-medium uppercase tracking-[0.05em] text-[var(--text-tertiary)]">Callback tasks</div>
+              <div className="mt-3 grid gap-2">
+                {call.callback_tasks.length ? call.callback_tasks.map((task) => (
+                  <div key={task.id} className="rounded-[8px] border border-[var(--border)] bg-[var(--bg)] p-3 text-[12px]">
+                    <div className="font-medium text-[var(--text-primary)]">{task.reason}</div>
+                    <div className="mt-1 text-[var(--text-secondary)]">{task.status.replaceAll("_", " ")}</div>
                   </div>
-                ))
-              ) : (
-                <p className="subtle">No callback tasks linked.</p>
-              )}
+                )) : <div className="text-[12px] text-[var(--text-secondary)]">No callback tasks linked.</div>}
+              </div>
             </div>
 
-            <div className="stack-item">
-              <strong>Incidents</strong>
-              {call.incidents.length ? (
-                call.incidents.map((incident) => (
-                  <div key={incident.id} className="detail-row">
-                    <span>{incident.incident_type.replaceAll("_", " ")}</span>
-                    <span className={`pill pill--${incident.severity}`}>{incident.severity}</span>
+            <div className="rounded-[12px] border border-[var(--border)] bg-[var(--surface)] p-4">
+              <div className="text-[11px] font-medium uppercase tracking-[0.05em] text-[var(--text-tertiary)]">Incidents</div>
+              <div className="mt-3 grid gap-2">
+                {call.incidents.length ? call.incidents.map((incident) => (
+                  <div key={incident.id} className="rounded-[8px] border border-[var(--border)] bg-[var(--bg)] p-3 text-[12px]">
+                    <div className="font-medium text-[var(--text-primary)]">{incident.incident_type.replaceAll("_", " ")}</div>
+                    <div className="mt-1 text-[var(--text-secondary)]">{incident.summary}</div>
                   </div>
-                ))
-              ) : (
-                <p className="subtle">No incidents linked.</p>
-              )}
-            </div>
-
-            <div className="stack-item">
-              <strong>Structured outputs</strong>
-              {call.structured_outputs.length ? (
-                call.structured_outputs.map((output) => (
-                  <div key={output.id} className="detail-structured">
-                    <span>{output.field_name}</span>
-                    <code>
-                      {output.value_text ??
-                        (output.value_bool !== null ? String(output.value_bool) : JSON.stringify(output.value_json))}
-                    </code>
-                  </div>
-                ))
-              ) : (
-                <p className="subtle">No structured outputs stored.</p>
-              )}
-            </div>
-
-            <div className="stack-item">
-              <strong>Recent related calls</strong>
-              {call.recent_related_calls?.length ? (
-                call.recent_related_calls.map((related) => (
-                  <div key={related.id} className="detail-row">
-                    <span>{related.caller_name || related.caller_phone || "Caller"}</span>
-                    <span>{related.disposition.replaceAll("_", " ")}</span>
-                  </div>
-                ))
-              ) : (
-                <p className="subtle">No related call history yet.</p>
-              )}
+                )) : <div className="text-[12px] text-[var(--text-secondary)]">No incidents linked.</div>}
+              </div>
             </div>
           </div>
-        </article>
-      </section>
-    </div>
+        </div>
+      </div>
+    </CommandShell>
   );
 }
