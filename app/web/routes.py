@@ -1,63 +1,24 @@
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db import get_db
-from app.models import Call, CallbackTask, Incident, Practice
+from app.models import CallbackTask, Incident, Practice
 
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
 
 
 @router.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
-    recent_calls = db.scalars(
-        select(Call)
-        .options(selectinload(Call.callback_tasks), selectinload(Call.incidents))
-        .order_by(desc(Call.created_at))
-        .limit(15)
-    ).all()
-    urgent_incidents = db.scalars(
-        select(Incident).where(Incident.status == "open").order_by(desc(Incident.created_at)).limit(10)
-    ).all()
-    callback_tasks = db.scalars(
-        select(CallbackTask).where(CallbackTask.status != "completed").order_by(desc(CallbackTask.created_at)).limit(10)
-    ).all()
-    missed_calls = db.scalars(
-        select(Call).where(Call.disposition == "missed_call").order_by(desc(Call.created_at)).limit(10)
-    ).all()
-    practices = db.scalars(select(Practice).order_by(Practice.practice_name)).all()
-    return templates.TemplateResponse(
-        request,
-        "dashboard.html",
-        {
-            "recent_calls": recent_calls,
-            "urgent_incidents": urgent_incidents,
-            "callback_tasks": callback_tasks,
-            "missed_calls": missed_calls,
-            "practices": practices,
-        },
-    )
+def dashboard() -> RedirectResponse:
+    return RedirectResponse(url=f"{settings.frontend_base_url.rstrip('/')}/callbacks", status_code=307)
 
 
 @router.get("/calls/{call_id}", response_class=HTMLResponse)
-def call_detail(call_id: str, request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
-    call = db.scalar(
-        select(Call)
-        .where(Call.id == call_id)
-        .options(
-            selectinload(Call.incidents),
-            selectinload(Call.callback_tasks),
-            selectinload(Call.artifacts),
-            selectinload(Call.structured_outputs),
-        )
-    )
-    if not call:
-        raise HTTPException(status_code=404, detail="Call not found.")
-    return templates.TemplateResponse(request, "call_detail.html", {"call": call})
+def call_detail(call_id: str) -> RedirectResponse:
+    return RedirectResponse(url=f"{settings.frontend_base_url.rstrip('/')}/calls/{call_id}", status_code=307)
 
 
 @router.post("/dashboard/callback-tasks/{task_id}/status")
