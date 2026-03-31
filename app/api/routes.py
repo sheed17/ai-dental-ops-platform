@@ -10,8 +10,10 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import settings
 from app.db import get_db
 from app.models import Call, CallArtifact, CallStructuredOutput, CallbackTask, Incident, IntegrationEvent, Practice
+from app.models import RoutingRule
 from app.schemas import (
     CallRead,
+    CallActionRequest,
     CallListItemRead,
     CallbackTaskRead,
     CallbackTaskUpdate,
@@ -19,12 +21,15 @@ from app.schemas import (
     IncidentRead,
     IntegrationCatalogItemRead,
     IntegrationEventRead,
+    OperationFeedItemRead,
     OnboardingChecklistItemRead,
     OnboardingOverviewRead,
     PracticeRead,
     PracticeIntegrationSettingRead,
     PracticeIntegrationSettingUpdate,
     PracticeSettingsUpdate,
+    RoutingRuleRead,
+    RoutingRuleUpdate,
 )
 from app.services.integration_catalog import list_integration_capabilities
 from app.services.integration_settings import ensure_practice_integration_settings, upsert_practice_integration_setting
@@ -150,6 +155,73 @@ def _serialize_call_list_item(call: Call) -> CallListItemRead:
         call_summary=call.call_summary,
         created_at=call.created_at,
     )
+
+
+def _serialize_routing_rule(rule: RoutingRule) -> RoutingRuleRead:
+    return RoutingRuleRead.model_validate(rule, from_attributes=True)
+
+
+def _build_operations_feed(db: Session, limit: int = 25) -> list[OperationFeedItemRead]:
+    items: list[OperationFeedItemRead] = []
+
+    for call in db.scalars(select(Call).order_by(desc(Call.created_at)).limit(limit)).all():
+        items.append(
+            OperationFeedItemRead(
+                id=f"call:{call.id}",
+                occurred_at=call.created_at,
+                item_type="call",
+                title=f"{call.disposition.replace('_', ' ')} call",
+                detail=call.call_summary or call.reason_for_call,
+                status=call.review_status,
+                severity=call.urgency,
+                related_call_id=call.id,
+            )
+        )
+
+    for task in db.scalars(select(CallbackTask).order_by(desc(CallbackTask.updated_at)).limit(limit)).all():
+        items.append(
+            OperationFeedItemRead(
+                id=f"callback:{task.id}",
+                occurred_at=task.updated_at,
+                item_type="callback_task",
+                title="Callback task updated",
+                detail=task.reason,
+                status=task.status,
+                severity=task.priority,
+                related_call_id=task.call_id,
+            )
+        )
+
+    for incident in db.scalars(select(Incident).order_by(desc(Incident.created_at)).limit(limit)).all():
+        items.append(
+            OperationFeedItemRead(
+                id=f"incident:{incident.id}",
+                occurred_at=incident.created_at,
+                item_type="incident",
+                title=f"{incident.incident_type.replace('_', ' ')} incident",
+                detail=incident.summary,
+                status=incident.status,
+                severity=incident.severity,
+                related_call_id=incident.call_id,
+            )
+        )
+
+    for event in db.scalars(select(IntegrationEvent).order_by(desc(IntegrationEvent.created_at)).limit(limit)).all():
+        items.append(
+            OperationFeedItemRead(
+                id=f"event:{event.id}",
+                occurred_at=event.processed_at or event.created_at,
+                item_type="integration_event",
+                title=f"{event.channel.replace('_', ' ')} {event.event_type.replace('_', ' ')}",
+                detail=(event.payload or {}).get("message") if isinstance(event.payload, dict) else None,
+                status=event.status,
+                severity=None,
+                related_call_id=event.call_id,
+            )
+        )
+
+    items.sort(key=lambda item: item.occurred_at, reverse=True)
+    return items[:limit]
 
 
 def _overdue_tasks(db: Session) -> list[CallbackTask]:
@@ -579,6 +651,11 @@ def list_integration_events(db: Session = Depends(get_db)) -> list[IntegrationEv
     return [IntegrationEventRead.model_validate(event, from_attributes=True) for event in events]
 
 
+@router.get("/operations/feed", response_model=list[OperationFeedItemRead])
+def operations_feed(limit: int = 25, db: Session = Depends(get_db)) -> list[OperationFeedItemRead]:
+    return _build_operations_feed(db, limit=limit)
+
+
 @router.get("/dashboard/summary", response_model=DashboardSummary)
 def dashboard_summary(db: Session = Depends(get_db)) -> DashboardSummary:
     recent_calls = db.scalars(
@@ -662,3 +739,78 @@ def get_onboarding_overview(practice_id: str, db: Session = Depends(get_db)) -> 
     if not practice:
         raise HTTPException(status_code=404, detail="Practice not found.")
     return _build_onboarding_overview(db, practice)
+
+
+@router.get("/practices/{practice_id}/routing-rules", response_model=list[RoutingRuleRead])
+def list_routing_rules(practice_id: str, db: Session = Depends(get_db)) -> list[RoutingRuleRead]:
+    practice = db.get(Practice, practice_id)
+    if not practice:
+        raise HTTPException(status_code=404, detail="Practice not found.")
+    rules = db.scalars(select(RoutingRule).where(RoutingRule.practice_id == practice_id).order_by(RoutingRule.created_at)).all()
+    return [_serialize_routing_rule(rule) for rule in rules]
+
+
+@router.put("/practices/{practice_id}/routing-rules/{rule_id}", response_model=RoutingRuleRead)
+def update_routing_rule(practice_id: str, rule_id: str, payload: RoutingRuleUpdate, db: Session = Depends(get_db)) -> RoutingRuleRead:
+    rule = db.get(RoutingRule, rule_id)
+    if not rule or rule.practice_id != practice_id:
+        raise HTTPException(status_code=404, detail="Routing rule not found.")
+    rule.name = payload.name
+    rule.trigger_event = payload.trigger_event
+    rule.condition_json = payload.condition_json
+    rule.action_json = payload.action_json
+    rule.is_enabled = payload.is_enabled
+    db.commit()
+    db.refresh(rule)
+    return _serialize_routing_rule(rule)
+
+
+@router.post("/calls/{call_id}/actions")
+def perform_call_action(call_id: str, payload: CallActionRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)) -> dict[str, Any]:
+    call = db.get(Call, call_id)
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found.")
+
+    result: dict[str, Any] = {"status": "ok", "action": payload.action, "callId": call.id}
+    event_ids: list[str] = []
+
+    if payload.action == "mark_handled":
+        call.review_status = "handled"
+        result["reviewStatus"] = call.review_status
+    elif payload.action == "send_sms":
+        event = IntegrationEvent(
+            practice_id=call.practice_id,
+            call_id=call.id,
+            channel="sms",
+            event_type="manual_follow_up_sms",
+            status="queued",
+            payload={
+                "to": call.caller_phone,
+                "message": payload.note or call.message_for_staff or call.call_summary or "We will follow up soon.",
+            },
+        )
+        db.add(event)
+        db.flush()
+        event_ids.append(event.id)
+        result["queuedEventId"] = event.id
+    elif payload.action == "schedule_callback":
+        task = CallbackTask(
+            practice_id=call.practice_id,
+            call_id=call.id,
+            status="open",
+            priority="normal",
+            callback_name=call.caller_name,
+            callback_phone=call.caller_phone,
+            reason=payload.note or call.reason_for_call or "Manual callback requested",
+            due_note="Scheduled manually from call detail",
+        )
+        db.add(task)
+        db.flush()
+        result["callbackTaskId"] = task.id
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported call action.")
+
+    db.commit()
+    if event_ids:
+        background_tasks.add_task(process_integration_events_async, event_ids)
+    return result

@@ -375,3 +375,45 @@ def test_onboarding_overview_returns_checklist(client):
     assert payload["practice_id"] == practice_id
     assert payload["total_steps"] >= 1
     assert len(payload["checklist"]) == payload["total_steps"]
+
+
+def test_operations_feed_and_routing_rules_are_available(client):
+    practice_id = client.get("/api/v1/practice-settings").json()[0]["id"]
+    feed = client.get("/api/v1/operations/feed")
+    assert feed.status_code == 200
+
+    rules = client.get(f"/api/v1/practices/{practice_id}/routing-rules")
+    assert rules.status_code == 200
+    assert len(rules.json()) >= 1
+
+
+def test_call_actions_mark_handled_and_schedule_callback(client):
+    create = client.post(
+        "/api/v1/vapi/end-of-call",
+        json={
+            "message": {
+                "type": "end-of-call-report",
+                "call": {"id": "action_call", "phoneNumber": {"number": "+12282832484"}},
+                "customer": {"number": "+12098143953"},
+                "endedReason": "assistant ended call",
+            },
+            "analysis": {
+                "a": {"name": "call_disposition", "result": "general_message"},
+                "b": {"name": "urgency_level", "result": "routine"},
+                "c": {"name": "call_summary", "result": "Manual action test call."},
+            },
+        },
+    )
+    assert create.status_code == 200
+    call_id = create.json()["callId"]
+
+    mark = client.post(f"/api/v1/calls/{call_id}/actions", json={"action": "mark_handled"})
+    assert mark.status_code == 200
+    assert mark.json()["reviewStatus"] == "handled"
+
+    schedule = client.post(
+        f"/api/v1/calls/{call_id}/actions",
+        json={"action": "schedule_callback", "note": "Call tomorrow morning"},
+    )
+    assert schedule.status_code == 200
+    assert schedule.json()["callbackTaskId"]

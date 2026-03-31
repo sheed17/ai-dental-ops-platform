@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { CallActionBar } from "@/components/call-action-bar";
 import { TopNav } from "@/components/top-nav";
 import { getCall } from "@/lib/api";
 
@@ -66,6 +67,8 @@ export default async function CallDetailPage({
               Back to queue
             </Link>
           </div>
+
+          <CallActionBar callId={call.id} />
 
           {call.recording_url ? (
             <div className="recording-player">
@@ -142,6 +145,20 @@ export default async function CallDetailPage({
                 ))
               ) : (
                 <p className="subtle">No structured outputs stored.</p>
+              )}
+            </div>
+
+            <div className="stack-item">
+              <strong>Recent related calls</strong>
+              {call.recent_related_calls?.length ? (
+                call.recent_related_calls.map((related) => (
+                  <div key={related.id} className="detail-row">
+                    <span>{related.caller_name || related.caller_phone || "Caller"}</span>
+                    <span>{related.disposition.replaceAll("_", " ")}</span>
+                  </div>
+                ))
+              ) : (
+                <p className="subtle">No related call history yet.</p>
               )}
             </div>
           </div>

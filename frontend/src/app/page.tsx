@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { TopNav } from "@/components/top-nav";
-import { getDashboardSummary } from "@/lib/api";
+import { getDashboardSummary, getOperationsFeed } from "@/lib/api";
 
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("en-US", {
@@ -11,7 +11,7 @@ function formatDateTime(value: string) {
 }
 
 export default async function Home() {
-  const summary = await getDashboardSummary();
+  const [summary, operationsFeed] = await Promise.all([getDashboardSummary(), getOperationsFeed()]);
   const recentCalls = summary.recent_calls.slice(0, 8);
   const urgentIncidents = summary.urgent_incidents.slice(0, 6);
   const activePractice = summary.practices[0] ?? null;
@@ -28,6 +28,12 @@ export default async function Home() {
             After-hours calls, missed-call recovery, urgent triage, and callback follow-through
             in one workflow surface.
           </p>
+          <div className="filter-row">
+            <span className="filter-pill filter-pill--active">All Calls</span>
+            <span className="filter-pill">Urgent</span>
+            <span className="filter-pill">Missed Call Recovery</span>
+            <span className="filter-pill">Repeat Callers</span>
+          </div>
         </div>
         {activePractice ? (
           <aside className="hero-card">
@@ -46,6 +52,10 @@ export default async function Home() {
               <div>
                 <dt>Callback SLA</dt>
                 <dd>{activePractice.callback_sla_minutes} minutes</dd>
+              </div>
+              <div>
+                <dt>Recovery</dt>
+                <dd>{activePractice.missed_call_recovery_enabled ? "Enabled" : "Disabled"}</dd>
               </div>
             </dl>
           </aside>
@@ -68,6 +78,11 @@ export default async function Home() {
           <strong>{summary.open_callback_tasks.length}</strong>
           <p>Calls that should flow into the callback queue.</p>
         </article>
+        <article className="metric-card">
+          <span>Repeat Callers</span>
+          <strong>{summary.repeat_callers.length}</strong>
+          <p>Numbers that have reached out more than once.</p>
+        </article>
       </section>
 
       <section className="content-grid">
@@ -85,6 +100,7 @@ export default async function Home() {
             <table>
               <thead>
                 <tr>
+                  <th>Call ID</th>
                   <th>Time</th>
                   <th>Caller</th>
                   <th>Disposition</th>
@@ -95,6 +111,7 @@ export default async function Home() {
               <tbody>
                 {recentCalls.map((call) => (
                   <tr key={call.id}>
+                    <td className="mono-cell">{call.vapi_call_id?.slice(0, 10) || call.id.slice(0, 8)}</td>
                     <td>{formatDateTime(call.created_at)}</td>
                     <td>
                       <Link href={`/calls/${call.id}`} className="table-link">
@@ -188,6 +205,40 @@ export default async function Home() {
             ) : (
               <p className="empty-state">No repeat caller patterns yet.</p>
             )}
+          </div>
+        </article>
+      </section>
+
+      <section className="content-grid">
+        <article className="panel panel--wide">
+          <div className="panel__header">
+            <div>
+              <span className="eyebrow">Operations Timeline</span>
+              <h2>One feed for calls, callbacks, incidents, and integrations</h2>
+            </div>
+          </div>
+          <div className="timeline">
+            {operationsFeed.slice(0, 12).map((item) => (
+              <div key={item.id} className="timeline__item">
+                <div className="timeline__dot" />
+                <div className="timeline__content">
+                  <div className="timeline__meta">
+                    <strong>{item.title}</strong>
+                    <span>{formatDateTime(item.occurred_at)}</span>
+                  </div>
+                  {item.detail ? <p>{item.detail}</p> : null}
+                  <div className="timeline__tags">
+                    <span className="filter-pill">{item.item_type.replaceAll("_", " ")}</span>
+                    {item.status ? <span className="filter-pill">{item.status.replaceAll("_", " ")}</span> : null}
+                    {item.related_call_id ? (
+                      <Link href={`/calls/${item.related_call_id}`} className="text-link">
+                        Open call
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </article>
       </section>

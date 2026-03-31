@@ -177,3 +177,38 @@ class PracticeIntegrationSettingUpdate(BaseModel):
     is_enabled: bool
     provider: str
     config: dict[str, Any] | None = None
+
+
+class RoutingRuleRead(BaseModel):
+    id: str
+    practice_id: str
+    name: str
+    trigger_event: str
+    condition_json: dict[str, Any] | None
+    action_json: dict[str, Any]
+    is_enabled: bool
+    created_at: datetime
+
+
+class RoutingRuleUpdate(BaseModel):
+    name: str
+    trigger_event: str
+    condition_json: dict[str, Any] | None = None
+    action_json: dict[str, Any]
+    is_enabled: bool = True
+
+
+class OperationFeedItemRead(BaseModel):
+    id: str
+    occurred_at: datetime
+    item_type: str
+    title: str
+    detail: str | None
+    status: str | None
+    severity: str | None
+    related_call_id: str | None = None
+
+
+class CallActionRequest(BaseModel):
+    action: str
+    note: str | None = None

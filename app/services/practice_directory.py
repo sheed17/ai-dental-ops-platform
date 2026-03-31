@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Practice, PracticePhoneNumber
+from app.models import Practice, PracticePhoneNumber, RoutingRule
 
 
 @dataclass(frozen=True)
@@ -93,6 +93,35 @@ def seed_practices(db: Session) -> None:
                 label="primary",
                 is_primary=True,
             )
+        )
+        db.flush()
+        db.add_all(
+            [
+                RoutingRule(
+                    practice_id=practice.id,
+                    name="Urgent after-hours alert",
+                    trigger_event="call.completed",
+                    condition_json={"urgency": "urgent"},
+                    action_json={"channel": "internal_alert", "event_type": "urgent_call_alert"},
+                    is_enabled=True,
+                ),
+                RoutingRule(
+                    practice_id=practice.id,
+                    name="Booking request follow-up",
+                    trigger_event="call.completed",
+                    condition_json={"disposition": "appointment_request"},
+                    action_json={"channel": "crm", "event_type": "lead_or_callback_sync"},
+                    is_enabled=True,
+                ),
+                RoutingRule(
+                    practice_id=practice.id,
+                    name="Overdue callback manager ping",
+                    trigger_event="callback.overdue",
+                    condition_json={"minutes_overdue": 60},
+                    action_json={"channel": "sms", "event_type": "staff_callback_notification"},
+                    is_enabled=False,
+                ),
+            ]
         )
 
     db.commit()

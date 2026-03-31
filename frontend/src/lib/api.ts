@@ -63,6 +63,8 @@ export type Call = {
   callback_tasks: CallbackTask[];
   artifacts: CallArtifact[];
   structured_outputs: StructuredOutput[];
+  repeat_caller_count?: number;
+  recent_related_calls?: CallListItem[];
 };
 
 export type Practice = {
@@ -136,6 +138,28 @@ export type OnboardingOverview = {
   checklist: OnboardingChecklistItem[];
 };
 
+export type OperationFeedItem = {
+  id: string;
+  occurred_at: string;
+  item_type: string;
+  title: string;
+  detail: string | null;
+  status: string | null;
+  severity: string | null;
+  related_call_id: string | null;
+};
+
+export type RoutingRule = {
+  id: string;
+  practice_id: string;
+  name: string;
+  trigger_event: string;
+  condition_json: Record<string, unknown> | null;
+  action_json: Record<string, unknown>;
+  is_enabled: boolean;
+  created_at: string;
+};
+
 const API_BASE_URL =
   process.env.API_BASE_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
@@ -144,6 +168,22 @@ const API_BASE_URL =
 async function apiFetch<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+async function apiMutation<T>(path: string, init: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init.headers || {}),
+    },
   });
 
   if (!response.ok) {
@@ -191,4 +231,19 @@ export async function getPracticeIntegrations(practiceId: string): Promise<Pract
 
 export async function getOnboardingOverview(practiceId: string): Promise<OnboardingOverview> {
   return apiFetch<OnboardingOverview>(`/practices/${practiceId}/onboarding`);
+}
+
+export async function getOperationsFeed(): Promise<OperationFeedItem[]> {
+  return apiFetch<OperationFeedItem[]>("/operations/feed");
+}
+
+export async function getRoutingRules(practiceId: string): Promise<RoutingRule[]> {
+  return apiFetch<RoutingRule[]>(`/practices/${practiceId}/routing-rules`);
+}
+
+export async function performCallAction(callId: string, action: string, note?: string): Promise<Record<string, unknown>> {
+  return apiMutation<Record<string, unknown>>(`/calls/${callId}/actions`, {
+    method: "POST",
+    body: JSON.stringify({ action, note }),
+  });
 }

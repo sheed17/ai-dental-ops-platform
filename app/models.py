@@ -189,3 +189,16 @@ class IntegrationEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RoutingRule(Base):
+    __tablename__ = "routing_rules"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    practice_id: Mapped[str] = mapped_column(ForeignKey("practices.id"), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    trigger_event: Mapped[str] = mapped_column(String(100))
+    condition_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    action_json: Mapped[dict] = mapped_column(JSON)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

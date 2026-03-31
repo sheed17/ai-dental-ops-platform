@@ -1,15 +1,16 @@
 import { TopNav } from "@/components/top-nav";
-import { getIntegrationCatalog, getPracticeIntegrations, getPracticeSettings } from "@/lib/api";
+import { getIntegrationCatalog, getPracticeIntegrations, getPracticeSettings, getRoutingRules } from "@/lib/api";
 
 export default async function IntegrationsPage() {
   const practices = await getPracticeSettings();
   const activePractice = practices[0] ?? null;
-  const [catalog, integrations] = activePractice
+  const [catalog, integrations, routingRules] = activePractice
     ? await Promise.all([
         getIntegrationCatalog(),
         getPracticeIntegrations(activePractice.id),
+        getRoutingRules(activePractice.id),
       ])
-    : [[], []];
+    : [[], [], []];
 
   const integrationMap = new Map(integrations.map((setting) => [setting.capability_key, setting]));
 
@@ -55,6 +56,31 @@ export default async function IntegrationsPage() {
             </article>
           );
         })}
+      </section>
+
+      <section className="panel" style={{ marginTop: 20 }}>
+        <div className="panel__header">
+          <div>
+            <span className="eyebrow">Routing Rules</span>
+            <h2>Simple automation, not a Zapier clone</h2>
+          </div>
+        </div>
+        <div className="stack-list">
+          {routingRules.map((rule) => (
+            <div key={rule.id} className="stack-item">
+              <div className="stack-item__top">
+                <strong>{rule.name}</strong>
+                <span className={`pill pill--${rule.is_enabled ? "routine" : "high"}`}>
+                  {rule.is_enabled ? "enabled" : "disabled"}
+                </span>
+              </div>
+              <p>
+                When <strong>{rule.trigger_event.replaceAll("_", " ")}</strong>, then route to{" "}
+                <strong>{String(rule.action_json.channel || "workflow")}</strong>.
+              </p>
+            </div>
+          ))}
+        </div>
       </section>
     </main>
   );
