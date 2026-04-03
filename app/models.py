@@ -51,6 +51,10 @@ class PracticePhoneNumber(Base):
     phone_number: Mapped[str] = mapped_column(String(30), unique=True, index=True)
     label: Mapped[str] = mapped_column(String(100), default="primary")
     is_primary: Mapped[bool] = mapped_column(Boolean, default=True)
+    routing_mode: Mapped[str] = mapped_column(String(50), default="always_forward")
+    forward_to_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    voice_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    sms_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
     practice: Mapped[Practice] = relationship(back_populates="phone_numbers")
 

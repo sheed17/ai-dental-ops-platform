@@ -17,13 +17,13 @@ os.environ["DATABASE_URL"] = f"sqlite:///./{TEST_DB_PATH.name}"
 os.environ["SEED_DEMO_DATA"] = "true"
 os.environ["VAPI_BASE_ASSISTANT_ID"] = "41e7309e-a78e-48e7-8905-ed0d3e220c6d"
 
-from app.db import Base, SessionLocal, engine  # noqa: E402
+from app.db import Base, SessionLocal, engine, init_db  # noqa: E402
 from app.main import app  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def reset_database():
-    Base.metadata.create_all(bind=engine)
+    init_db()
     db = SessionLocal()
     try:
         for table in reversed(Base.metadata.sorted_tables):

@@ -51,6 +51,12 @@ def _bootstrap_schema_updates() -> None:
             "max_attempts": "INTEGER DEFAULT 3",
             "next_attempt_at": "TIMESTAMP",
         },
+        "practice_phone_numbers": {
+            "routing_mode": "VARCHAR(50) DEFAULT 'always_forward'",
+            "forward_to_number": "VARCHAR(30)",
+            "voice_enabled": "BOOLEAN DEFAULT TRUE",
+            "sms_enabled": "BOOLEAN DEFAULT TRUE",
+        },
     }
 
     if not set(table_updates).intersection(existing_tables):

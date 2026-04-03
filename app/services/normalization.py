@@ -143,12 +143,52 @@ def extract_vapi_call_id(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def _read_path(payload: dict[str, Any], path: tuple[str, ...]) -> Any:
+    current: Any = payload
+    for key in path:
+        if isinstance(current, dict):
+            current = current.get(key)
+        else:
+            return None
+    return current
+
+
+def _normalize_duration_candidate(value: Any, *, unit: str = "seconds") -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if not value or not value.replace(".", "", 1).isdigit():
+            return None
+        value = float(value) if "." in value else int(value)
+    if isinstance(value, (int, float)):
+        seconds = int(value / 1000) if unit == "milliseconds" else int(value)
+        if seconds <= 0:
+            return None
+        # Dental receptionist calls should almost never exceed 30 minutes. Treat larger
+        # values as unreliable source data rather than showing obviously wrong durations.
+        if seconds > 1800:
+            return None
+        return seconds
+    return None
+
+
 def extract_duration_seconds(payload: dict[str, Any]) -> int | None:
-    for node in _walk(payload):
-        for key in ("durationSeconds", "duration"):
-            value = node.get(key)
-            if isinstance(value, int):
-                return value
+    candidate_paths: tuple[tuple[tuple[str, ...], str], ...] = (
+        (("message", "call", "durationSeconds"), "seconds"),
+        (("call", "durationSeconds"), "seconds"),
+        (("message", "call", "duration"), "seconds"),
+        (("call", "duration"), "seconds"),
+        (("message", "call", "durationMs"), "milliseconds"),
+        (("call", "durationMs"), "milliseconds"),
+        (("durationSeconds",), "seconds"),
+    )
+
+    for path, unit in candidate_paths:
+        normalized = _normalize_duration_candidate(_read_path(payload, path), unit=unit)
+        if normalized is not None:
+            return normalized
+
     return None
 
 

@@ -58,6 +58,20 @@ def test_end_of_call_creates_call_incident_and_callback(client):
     assert calls[0]["incidents"][0]["status"] == "open"
 
 
+def test_extract_duration_seconds_ignores_unreliable_long_values():
+    from app.services.normalization import extract_duration_seconds
+
+    assert extract_duration_seconds({"message": {"call": {"durationSeconds": 3600}}}) is None
+    assert extract_duration_seconds({"call": {"durationMs": 5_840_000}}) is None
+
+
+def test_extract_duration_seconds_accepts_explicit_short_values():
+    from app.services.normalization import extract_duration_seconds
+
+    assert extract_duration_seconds({"message": {"call": {"durationSeconds": 271}}}) == 271
+    assert extract_duration_seconds({"call": {"durationMs": 91_000}}) == 91
+
+
 def test_missed_call_recovery_creates_callback_and_sms_event(client):
     response = client.post(
         "/api/v1/telephony/missed-call",
@@ -516,6 +530,52 @@ def test_practice_modules_can_be_listed_and_updated(client):
     assert updated.status_code == 200
     assert updated.json()["module_key"] == "booking"
     assert updated.json()["is_enabled"] is False
+
+
+def test_practice_phone_numbers_can_be_listed_created_and_promoted(client):
+    practice_id = client.get("/api/v1/practice-settings").json()[0]["id"]
+
+    listed = client.get(f"/api/v1/practices/{practice_id}/phone-numbers")
+    assert listed.status_code == 200
+    assert len(listed.json()) >= 1
+    assert any(item["is_primary"] is True for item in listed.json())
+
+    created = client.post(
+        f"/api/v1/practices/{practice_id}/phone-numbers",
+        json={"phone_number": "(512) 555-9000", "label": "north office", "is_primary": False},
+    )
+    assert created.status_code == 200
+    created_payload = created.json()
+    assert created_payload["phone_number"] == "+15125559000"
+    assert created_payload["label"] == "north office"
+    assert created_payload["is_primary"] is False
+    assert created_payload["routing_mode"] == "always_forward"
+    assert created_payload["voice_enabled"] is True
+    assert created_payload["sms_enabled"] is True
+
+    promoted = client.post(f"/api/v1/practices/{practice_id}/phone-numbers/{created_payload['id']}/make-primary")
+    assert promoted.status_code == 200
+    assert promoted.json()["is_primary"] is True
+
+    updated = client.put(
+        f"/api/v1/practices/{practice_id}/phone-numbers/{created_payload['id']}",
+        json={
+            "label": "after hours line",
+            "is_primary": True,
+            "routing_mode": "business_hours_only",
+            "forward_to_number": "(408) 555-0102",
+            "voice_enabled": True,
+            "sms_enabled": False,
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["routing_mode"] == "business_hours_only"
+    assert updated.json()["forward_to_number"] == "+14085550102"
+    assert updated.json()["sms_enabled"] is False
+
+    relisted = client.get(f"/api/v1/practices/{practice_id}/phone-numbers").json()
+    assert sum(1 for item in relisted if item["is_primary"]) == 1
+    assert any(item["id"] == created_payload["id"] and item["is_primary"] is True for item in relisted)
 
 
 def test_operations_feed_and_routing_rules_are_available(client):

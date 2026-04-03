@@ -39,6 +39,37 @@ class PracticeRead(BaseModel):
     callback_sla_minutes: int
 
 
+class PracticePhoneNumberRead(BaseModel):
+    id: str
+    practice_id: str
+    phone_number: str
+    label: str
+    is_primary: bool
+    routing_mode: str
+    forward_to_number: str | None
+    voice_enabled: bool
+    sms_enabled: bool
+
+
+class PracticePhoneNumberCreate(BaseModel):
+    phone_number: str
+    label: str = "secondary"
+    is_primary: bool = False
+    routing_mode: str = "always_forward"
+    forward_to_number: str | None = None
+    voice_enabled: bool = True
+    sms_enabled: bool = True
+
+
+class PracticePhoneNumberUpdate(BaseModel):
+    label: str
+    is_primary: bool = False
+    routing_mode: str
+    forward_to_number: str | None = None
+    voice_enabled: bool = True
+    sms_enabled: bool = True
+
+
 class PracticeModuleRead(BaseModel):
     id: str
     practice_id: str

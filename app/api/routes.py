@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.db import get_db
-from app.models import Call, CallArtifact, CallStructuredOutput, CallbackTask, CommunicationEvent, Incident, IntegrationEvent, OperationalEvent, Practice, PracticeModule, RoutingRule
+from app.models import Call, CallArtifact, CallStructuredOutput, CallbackTask, CommunicationEvent, Incident, IntegrationEvent, OperationalEvent, Practice, PracticeModule, PracticePhoneNumber, RoutingRule
 from app.schemas import (
     AutomationRunSummary,
     BuildChecklistItemRead,
@@ -32,6 +32,9 @@ from app.schemas import (
     PracticeIntegrationSettingRead,
     PracticeModuleRead,
     PracticeModuleUpdate,
+    PracticePhoneNumberCreate,
+    PracticePhoneNumberRead,
+    PracticePhoneNumberUpdate,
     PracticeIntegrationSettingUpdate,
     PracticeSettingsUpdate,
     RoutingRuleRead,
@@ -47,7 +50,7 @@ from app.services.normalization import (
     merge_webhook_with_enrichment,
     normalize_vapi_end_of_call,
 )
-from app.services.practice_directory import get_default_practice, get_practice_by_phone
+from app.services.practice_directory import get_default_practice, get_practice_by_phone, normalize_phone_number
 from app.services.platform import ensure_practice_modules, emit_operational_event, upsert_practice_module
 from app.services.vapi_client import fetch_call_details
 from app.services.workflow import (
@@ -178,6 +181,10 @@ def _serialize_module(module: PracticeModule) -> PracticeModuleRead:
     return PracticeModuleRead.model_validate(module, from_attributes=True)
 
 
+def _serialize_practice_phone_number(phone_number: PracticePhoneNumber) -> PracticePhoneNumberRead:
+    return PracticePhoneNumberRead.model_validate(phone_number, from_attributes=True)
+
+
 def _serialize_operational_event(event: OperationalEvent) -> OperationalEventRead:
     return OperationalEventRead.model_validate(event, from_attributes=True)
 
@@ -254,6 +261,14 @@ def _build_onboarding_overview(db: Session, practice: Practice) -> OnboardingOve
             label="Core modules selected",
             completed=all(module.is_enabled for module in modules if module.module_key in {"after_hours", "callback_manager"}),
             detail="The practice has the core operational modules enabled.",
+        ),
+        OnboardingChecklistItemRead(
+            key="phone_numbers",
+            label="Practice numbers configured",
+            completed=bool(practice.phone_numbers)
+            and any(number.is_primary for number in practice.phone_numbers)
+            and any(number.voice_enabled and number.routing_mode for number in practice.phone_numbers),
+            detail="At least one owned number is assigned, marked primary, and configured for live routing.",
         ),
         OnboardingChecklistItemRead(
             key="practice_profile",
@@ -694,6 +709,108 @@ def resolve_incident(incident_id: str, db: Session = Depends(get_db)) -> Inciden
 def list_practice_settings(db: Session = Depends(get_db)) -> list[PracticeRead]:
     practices = db.scalars(select(Practice).order_by(Practice.practice_name)).all()
     return [_serialize_practice(practice) for practice in practices]
+
+
+@router.get("/practices/{practice_id}/phone-numbers", response_model=list[PracticePhoneNumberRead])
+def list_practice_phone_numbers(practice_id: str, db: Session = Depends(get_db)) -> list[PracticePhoneNumberRead]:
+    practice = db.get(Practice, practice_id)
+    if not practice:
+        raise HTTPException(status_code=404, detail="Practice not found.")
+    numbers = db.scalars(
+        select(PracticePhoneNumber)
+        .where(PracticePhoneNumber.practice_id == practice_id)
+        .order_by(desc(PracticePhoneNumber.is_primary), PracticePhoneNumber.phone_number)
+    ).all()
+    return [_serialize_practice_phone_number(number) for number in numbers]
+
+
+@router.post("/practices/{practice_id}/phone-numbers", response_model=PracticePhoneNumberRead)
+def create_practice_phone_number(
+    practice_id: str,
+    payload: PracticePhoneNumberCreate,
+    db: Session = Depends(get_db),
+) -> PracticePhoneNumberRead:
+    practice = db.get(Practice, practice_id)
+    if not practice:
+        raise HTTPException(status_code=404, detail="Practice not found.")
+
+    normalized_phone = normalize_phone_number(payload.phone_number)
+    if not normalized_phone:
+        raise HTTPException(status_code=400, detail="A valid phone number is required.")
+
+    existing_number = db.scalar(select(PracticePhoneNumber).where(PracticePhoneNumber.phone_number == normalized_phone))
+    if existing_number:
+        raise HTTPException(status_code=409, detail="That phone number is already assigned.")
+
+    should_be_primary = payload.is_primary or not db.scalar(
+        select(PracticePhoneNumber.id).where(PracticePhoneNumber.practice_id == practice_id).limit(1)
+    )
+    if should_be_primary:
+        for row in db.scalars(select(PracticePhoneNumber).where(PracticePhoneNumber.practice_id == practice_id)).all():
+            row.is_primary = False
+
+    number = PracticePhoneNumber(
+        practice_id=practice_id,
+        phone_number=normalized_phone,
+        label=payload.label.strip() or "secondary",
+        is_primary=should_be_primary,
+        routing_mode=payload.routing_mode,
+        forward_to_number=normalize_phone_number(payload.forward_to_number) if payload.forward_to_number else None,
+        voice_enabled=payload.voice_enabled,
+        sms_enabled=payload.sms_enabled,
+    )
+    db.add(number)
+    db.commit()
+    db.refresh(number)
+    return _serialize_practice_phone_number(number)
+
+
+@router.put("/practices/{practice_id}/phone-numbers/{phone_number_id}", response_model=PracticePhoneNumberRead)
+def update_practice_phone_number(
+    practice_id: str,
+    phone_number_id: str,
+    payload: PracticePhoneNumberUpdate,
+    db: Session = Depends(get_db),
+) -> PracticePhoneNumberRead:
+    practice = db.get(Practice, practice_id)
+    if not practice:
+        raise HTTPException(status_code=404, detail="Practice not found.")
+
+    target = db.get(PracticePhoneNumber, phone_number_id)
+    if not target or target.practice_id != practice_id:
+        raise HTTPException(status_code=404, detail="Phone number not found.")
+
+    if payload.is_primary:
+        for row in db.scalars(select(PracticePhoneNumber).where(PracticePhoneNumber.practice_id == practice_id)).all():
+            row.is_primary = row.id == phone_number_id
+
+    target.label = payload.label.strip() or target.label
+    target.routing_mode = payload.routing_mode
+    target.forward_to_number = normalize_phone_number(payload.forward_to_number) if payload.forward_to_number else None
+    target.voice_enabled = payload.voice_enabled
+    target.sms_enabled = payload.sms_enabled
+
+    db.commit()
+    db.refresh(target)
+    return _serialize_practice_phone_number(target)
+
+
+@router.post("/practices/{practice_id}/phone-numbers/{phone_number_id}/make-primary", response_model=PracticePhoneNumberRead)
+def make_practice_phone_number_primary(practice_id: str, phone_number_id: str, db: Session = Depends(get_db)) -> PracticePhoneNumberRead:
+    practice = db.get(Practice, practice_id)
+    if not practice:
+        raise HTTPException(status_code=404, detail="Practice not found.")
+
+    target = db.get(PracticePhoneNumber, phone_number_id)
+    if not target or target.practice_id != practice_id:
+        raise HTTPException(status_code=404, detail="Phone number not found.")
+
+    for row in db.scalars(select(PracticePhoneNumber).where(PracticePhoneNumber.practice_id == practice_id)).all():
+        row.is_primary = row.id == phone_number_id
+
+    db.commit()
+    db.refresh(target)
+    return _serialize_practice_phone_number(target)
 
 
 @router.get("/practices/{practice_id}/modules", response_model=list[PracticeModuleRead])

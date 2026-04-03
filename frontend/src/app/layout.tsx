@@ -1,23 +1,15 @@
 import type { Metadata } from "next";
-import { DM_Mono, DM_Sans } from "next/font/google";
+import { Inter } from "next/font/google";
 
 import "./globals.css";
+import { AppShell } from "@/components/app-shell";
+import { Providers } from "@/components/providers";
 
-const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600"],
-});
-
-const dmMono = DM_Mono({
-  variable: "--font-dm-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
-});
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Dental Ops Platform",
-  description: "Dental after-hours operations command center.",
+  description: "Mission control for AI receptionists.",
 };
 
 export default function RootLayout({
@@ -26,8 +18,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${dmSans.variable} ${dmMono.variable}`}>
-      <body>{children}</body>
+    <html lang="en">
+      <body className={inter.className}>
+        <Providers>
+          <AppShell>{children}</AppShell>
+        </Providers>
+      </body>
     </html>
   );
 }
