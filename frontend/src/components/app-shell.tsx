@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { Bell, Bot, Building2, ChartNoAxesCombined, GitBranch, LayoutDashboard, MessageSquare, Phone, Repeat, Settings, ShieldAlert, Sparkles, Workflow, Wrench } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+import { api } from "@/lib/api";
 
 const navItems = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
@@ -24,6 +26,9 @@ const navItems = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const practices = useQuery({ queryKey: ["practices"], queryFn: api.practices });
+  const practiceOptions = practices.data || [];
+  const activePracticeName = practiceOptions[0]?.name || "Practice";
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -66,9 +71,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur">
             <div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between lg:px-8">
               <div className="flex flex-1 flex-col gap-3 lg:flex-row lg:items-center">
-                <select className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-900">
-                  <option>San Jose Dental</option>
-                  <option>Mission Peak Dental</option>
+                <select
+                  value={activePracticeName}
+                  className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-900"
+                  disabled
+                >
+                  {practiceOptions.length ? (
+                    practiceOptions.map((practice) => (
+                      <option key={practice.id} value={practice.name}>
+                        {practice.name}
+                      </option>
+                    ))
+                  ) : (
+                    <option>Loading practice...</option>
+                  )}
                 </select>
                 <div className="w-full max-w-xl">
                   <Input placeholder="Search calls, callbacks, incidents, messages..." />
