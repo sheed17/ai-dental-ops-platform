@@ -1,4 +1,4 @@
-def test_assistant_selector_returns_resolved_assistant_overrides(client):
+def test_assistant_selector_returns_transient_assistant(client):
     response = client.post(
         "/api/v1/vapi/assistant-request",
         json={
@@ -11,10 +11,9 @@ def test_assistant_selector_returns_resolved_assistant_overrides(client):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["assistantId"] == "41e7309e-a78e-48e7-8905-ed0d3e220c6d"
-    assert payload["assistantOverrides"]["variableValues"]["practiceName"] == "Bright Smile Dental"
-    assert payload["assistantOverrides"]["firstMessage"] == "Hi, thank you for calling Bright Smile Dental. This is Clara. The office is currently closed. How can I help you?"
-    system_prompt = payload["assistantOverrides"]["model"]["messages"][0]["content"]
+    assert payload["assistant"]["variableValues"]["practiceName"] == "Bright Smile Dental"
+    assert payload["assistant"]["firstMessage"] == "Hi, thank you for calling Bright Smile Dental. This is Clara. The office is currently closed. How can I help you?"
+    system_prompt = payload["assistant"]["model"]["messages"][0]["content"]
     assert "{{practiceName}}" not in system_prompt
     assert "Bright Smile Dental" in system_prompt
     assert "general dentistry" in system_prompt
@@ -194,8 +193,8 @@ def test_assistant_request_respects_after_hours_only_routing(client):
     )
     assert after_hours_response.status_code == 200
     after_hours_payload = after_hours_response.json()
-    assert after_hours_payload["assistantOverrides"]["variableValues"]["practiceName"] == "Bright Smile Dental"
-    assert "Bright Smile Dental" in after_hours_payload["assistantOverrides"]["firstMessage"]
+    assert after_hours_payload["assistant"]["variableValues"]["practiceName"] == "Bright Smile Dental"
+    assert "Bright Smile Dental" in after_hours_payload["assistant"]["firstMessage"]
 
 
 def test_assistant_context_reports_routing_activity_for_simulated_time(client):

@@ -60,7 +60,7 @@ from app.services.practice_directory import (
     parse_debug_time,
 )
 from app.services.platform import ensure_practice_modules, emit_operational_event, upsert_practice_module
-from app.services.vapi_client import fetch_call_details
+from app.services.vapi_client import fetch_assistant_details, fetch_call_details
 from app.services.workflow import (
     create_inbound_communication_event,
     create_operational_records,
@@ -293,6 +293,40 @@ def _build_resolved_assistant_overrides(practice: Practice) -> dict[str, Any]:
     }
 
 
+def _build_transient_assistant(practice: Practice) -> dict[str, Any]:
+    base_assistant = fetch_assistant_details(settings.vapi_base_assistant_id) or {}
+    overrides = _build_resolved_assistant_overrides(practice)
+
+    assistant: dict[str, Any] = {
+        key: value
+        for key, value in base_assistant.items()
+        if key not in {"id", "orgId", "createdAt", "updatedAt"}
+    }
+
+    if not assistant:
+        assistant = {
+            "name": "Dental After Hours Receptionist",
+            "voice": {"voiceId": "Emma", "provider": "vapi"},
+            "model": {"provider": "openai", "model": "gpt-4.1", "maxTokens": 350, "temperature": 0.2},
+            "transcriber": {
+                "model": "nova-3",
+                "language": "en",
+                "numerals": False,
+                "provider": "deepgram",
+                "confidenceThreshold": 0.4,
+            },
+        }
+
+    model = assistant.get("model")
+    if not isinstance(model, dict):
+        model = {}
+    model["messages"] = overrides["model"]["messages"]
+    assistant["model"] = model
+    assistant["firstMessage"] = overrides["firstMessage"]
+    assistant["variableValues"] = overrides["variableValues"]
+    return assistant
+
+
 def _serialize_integration_setting(setting) -> PracticeIntegrationSettingRead:
     config = setting.config_json or {}
     provider = config.get("provider") if isinstance(config.get("provider"), str) else setting.channel
@@ -513,8 +547,7 @@ def vapi_assistant_request(
         }
 
     return {
-        "assistantId": settings.vapi_base_assistant_id,
-        "assistantOverrides": _build_resolved_assistant_overrides(practice),
+        "assistant": _build_transient_assistant(practice),
     }
 
 
