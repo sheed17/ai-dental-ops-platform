@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
+import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
@@ -70,6 +73,7 @@ from app.services.workflow import (
 
 
 router = APIRouter(prefix="/api/v1")
+logger = logging.getLogger(__name__)
 
 
 RESOLVED_ASSISTANT_PROMPT = """You are Clara, the after-hours virtual receptionist for {practice_name}, a dental office.
@@ -527,6 +531,7 @@ def vapi_assistant_request(
     _: None = Depends(verify_vapi_webhook),
     db: Session = Depends(get_db),
 ) -> dict:
+    started_at = time.perf_counter()
     message_type = extract_message_type(payload)
     if message_type and message_type != "assistant-request":
         return {"ok": True, "messageType": message_type}
@@ -540,15 +545,57 @@ def vapi_assistant_request(
         current_time=debug_time,
     )
     if not practice:
-        return {
+        response = {
             "assistantId": settings.vapi_base_assistant_id,
             "assistantOverrides": {"variableValues": {}},
             "debug": {"calledNumber": called_number or "unknown", "routingReason": routing_reason},
         }
+        _log_assistant_request_response(
+            response=response,
+            called_number=called_number,
+            practice_name=None,
+            routing_reason=routing_reason,
+            started_at=started_at,
+        )
+        return response
 
-    return {
+    response = {
         "assistant": _build_transient_assistant(practice),
     }
+    _log_assistant_request_response(
+        response=response,
+        called_number=called_number,
+        practice_name=practice.practice_name,
+        routing_reason=routing_reason,
+        started_at=started_at,
+    )
+    return response
+
+
+def _log_assistant_request_response(
+    *,
+    response: dict[str, Any],
+    called_number: str | None,
+    practice_name: str | None,
+    routing_reason: str,
+    started_at: float,
+) -> None:
+    duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+    try:
+        response_preview = json.dumps(response, default=str)[:4000]
+    except TypeError:
+        response_preview = str(response)[:4000]
+
+    logger.info(
+        "assistant-request completed",
+        extra={
+            "called_number": called_number or "unknown",
+            "practice_name": practice_name or "none",
+            "routing_reason": routing_reason,
+            "duration_ms": duration_ms,
+            "response_preview": response_preview,
+        },
+    )
 
 
 @router.post("/vapi/end-of-call")
