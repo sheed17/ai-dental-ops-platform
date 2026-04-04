@@ -5,6 +5,27 @@ export type Practice = {
   hours: string;
   services: string[];
   locations: number;
+  address: string;
+  website: string;
+  emergencyNumber: string;
+  insuranceSummary: string;
+  sameDayEmergencyPolicy: string;
+  languages: string;
+  schedulingMode: string;
+  insuranceMode: string;
+  missedCallRecoveryEnabled: boolean;
+  missedCallRecoveryMessage: string;
+  callbackSlaMinutes: number;
+};
+
+export type AssistantContext = {
+  practiceId: string;
+  practiceName: string;
+  routingNumber: string | null;
+  routingMode: string | null;
+  routingActive: boolean;
+  routingReason: string;
+  variableValues: Array<{ label: string; value: string }>;
 };
 
 export type SetupChecklistItem = {
@@ -69,11 +90,16 @@ export type Call = {
 export type Callback = {
   id: string;
   caller: string;
+  phone: string;
   practice: string;
   reason: string;
   status: "open" | "completed" | "escalated";
   priority: "high" | "medium" | "low";
   createdAt: string;
+  assignedTo?: string;
+  internalNotes?: string;
+  outcome?: string;
+  dueNote?: string;
 };
 
 export type Incident = {
@@ -83,13 +109,20 @@ export type Incident = {
   severity: "urgent" | "high" | "medium";
   status: "open" | "resolved" | "escalated";
   summary: string;
+  details?: string;
+  createdAt?: string;
+  resolvedAt?: string | null;
 };
 
 export type MessageThread = {
   id: string;
   patient: string;
+  phone?: string;
   practice: string;
   channel: "sms";
+  lastMessageAt?: string;
+  status?: "waiting" | "needs_reply" | "closed";
+  triggerLabel?: string;
   messages: Array<{ id: string; sender: "ai" | "patient"; body: string; timestamp: string }>;
 };
 
@@ -138,9 +171,15 @@ export type DashboardSummary = {
 
 export type SetupWorkspace = {
   practice: Practice;
+  assistantContext: AssistantContext;
   checklist: SetupChecklistItem[];
   integrations: Integration[];
   routingRules: RoutingRule[];
   phoneNumbers: SetupPhoneNumber[];
   recentActivity: ActivityEvent[];
+};
+
+export type SetupWorkspaceOptions = {
+  practiceId?: string;
+  currentTime?: string;
 };

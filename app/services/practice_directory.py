@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+from datetime import datetime
+import re
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -150,6 +152,131 @@ def get_practice_by_phone(db: Session, phone: str | None) -> tuple[str, Practice
     )
     practice = db.scalar(stmt)
     return normalized_phone, practice
+
+
+def parse_debug_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        normalized = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+        return parsed.astimezone() if parsed.tzinfo else parsed.astimezone()
+    except ValueError:
+        return None
+
+
+def is_practice_open(office_hours: str, current_time: datetime | None = None) -> bool | None:
+    if not office_hours:
+        return None
+
+    now = current_time.astimezone() if current_time else datetime.now().astimezone()
+    office_hours_normalized = office_hours.strip().lower()
+    parts = [part.strip() for part in office_hours_normalized.split(",", 1)]
+    if len(parts) != 2:
+        return None
+
+    day_part, time_part = parts
+    day_part = (
+        day_part.replace("monday", "mon")
+        .replace("tuesday", "tue")
+        .replace("wednesday", "wed")
+        .replace("thursday", "thu")
+        .replace("friday", "fri")
+        .replace("saturday", "sat")
+        .replace("sunday", "sun")
+        .replace("through", "-")
+        .replace("to", "-")
+        .replace(" ", "")
+    )
+
+    day_order = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    active_days: set[int] = set()
+    for chunk in day_part.split("/"):
+        if "-" in chunk:
+            start_day, end_day = chunk.split("-", 1)
+            if start_day not in day_order or end_day not in day_order:
+                return None
+            start_index = day_order.index(start_day)
+            end_index = day_order.index(end_day)
+            if start_index <= end_index:
+                active_days.update(range(start_index, end_index + 1))
+            else:
+                active_days.update(list(range(start_index, 7)) + list(range(0, end_index + 1)))
+        elif chunk in day_order:
+            active_days.add(day_order.index(chunk))
+
+    if now.weekday() not in active_days:
+        return False
+
+    match = re.search(
+        r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:-|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)",
+        time_part,
+    )
+    if not match:
+        return None
+
+    start_hour, start_minute, start_period, end_hour, end_minute, end_period = match.groups()
+
+    def to_minutes(hour_text: str, minute_text: str | None, period_text: str) -> int:
+        hour = int(hour_text) % 12
+        if period_text == "pm":
+            hour += 12
+        minute = int(minute_text or "0")
+        return hour * 60 + minute
+
+    open_minutes = to_minutes(start_hour, start_minute, start_period)
+    close_minutes = to_minutes(end_hour, end_minute, end_period)
+    now_minutes = now.hour * 60 + now.minute
+
+    if close_minutes <= open_minutes:
+        return now_minutes >= open_minutes or now_minutes < close_minutes
+    return open_minutes <= now_minutes < close_minutes
+
+
+def evaluate_phone_number_routing(
+    phone_number: PracticePhoneNumber,
+    practice: Practice,
+    current_time: datetime | None = None,
+) -> tuple[bool, str]:
+    if not phone_number.voice_enabled:
+        return False, "Voice is disabled for this number."
+
+    routing_mode = phone_number.routing_mode or "always_forward"
+    if routing_mode == "always_forward":
+        return True, "This number is configured to answer all calls."
+
+    open_now = is_practice_open(practice.office_hours, current_time=current_time)
+    if open_now is None:
+        return True, "Office hours could not be parsed, so voice routing stays available."
+
+    if routing_mode == "after_hours_only":
+        return (not open_now, "Routing is active because the practice is currently closed." if not open_now else "Routing will wait until the practice is closed.")
+
+    if routing_mode == "business_hours_only":
+        return (open_now, "Routing is active because the practice is currently open." if open_now else "Routing will wait until business hours.")
+
+    return True, "This number is configured to answer calls."
+
+
+def get_active_practice_by_phone(
+    db: Session,
+    phone: str | None,
+    current_time: datetime | None = None,
+) -> tuple[str, Practice | None, str]:
+    normalized_phone = normalize_phone_number(phone)
+    if not normalized_phone:
+        return "", None, "No called number was provided."
+
+    number = db.scalar(select(PracticePhoneNumber).where(PracticePhoneNumber.phone_number == normalized_phone))
+    if not number:
+        return normalized_phone, None, "No practice number matched the called number."
+
+    practice = db.get(Practice, number.practice_id)
+    if not practice:
+        return normalized_phone, None, "The matched number is not attached to an active practice."
+
+    is_active, reason = evaluate_phone_number_routing(number, practice, current_time=current_time)
+    return normalized_phone, practice if is_active else None, reason
 
 
 def get_default_practice(db: Session) -> Practice | None:

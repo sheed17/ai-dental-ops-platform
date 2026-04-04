@@ -11,6 +11,7 @@ import {
   Practice,
   RoutingRule,
   SetupWorkspace,
+  SetupWorkspaceOptions,
 } from "@/lib/types";
 
 async function apiFetch<T>(path: string): Promise<T> {
@@ -40,7 +41,16 @@ export const api = {
   calls: () => apiFetch<Call[]>("/api/calls"),
   call: (id: string) => apiFetch<Call>(`/api/calls/${id}`),
   callbacks: () => apiFetch<Callback[]>("/api/callbacks"),
+  updateCallback: (id: string, payload: Record<string, unknown>) =>
+    apiMutation<Callback>(`/api/callbacks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
   incidents: () => apiFetch<Incident[]>("/api/incidents"),
+  resolveIncident: (id: string) =>
+    apiMutation<Incident>(`/api/incidents/${id}/resolve`, {
+      method: "POST",
+    }),
   events: () => apiFetch<ActivityEvent[]>("/api/events"),
   practices: () => apiFetch<Practice[]>("/api/practices"),
   messages: () => apiFetch<MessageThread[]>("/api/messages"),
@@ -48,7 +58,22 @@ export const api = {
   routingRules: () => apiFetch<RoutingRule[]>("/api/routing-rules"),
   integrations: () => apiFetch<Integration[]>("/api/integrations"),
   analytics: () => apiFetch<AnalyticsPoint[]>("/api/analytics"),
-  setupWorkspace: () => apiFetch<SetupWorkspace>("/api/setup/workspace"),
+  setupWorkspace: (options?: SetupWorkspaceOptions) => {
+    const query = new URLSearchParams();
+    if (options?.practiceId) {
+      query.set("practiceId", options.practiceId);
+    }
+    if (options?.currentTime) {
+      query.set("currentTime", options.currentTime);
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return apiFetch<SetupWorkspace>(`/api/setup/workspace${suffix}`);
+  },
+  updatePracticeProfile: (practiceId: string, payload: Record<string, unknown>) =>
+    apiMutation(`/api/setup/practice/${practiceId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
   updatePhoneNumber: (phoneNumberId: string, payload: Record<string, unknown>) =>
     apiMutation(`/api/setup/phone-numbers/${phoneNumberId}`, {
       method: "PUT",

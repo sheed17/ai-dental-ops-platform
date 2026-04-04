@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.db import get_db
 from app.models import Call, CallArtifact, CallStructuredOutput, CallbackTask, CommunicationEvent, Incident, IntegrationEvent, OperationalEvent, Practice, PracticeModule, PracticePhoneNumber, RoutingRule
 from app.schemas import (
+    AssistantContextRead,
     AutomationRunSummary,
     BuildChecklistItemRead,
     BuildChecklistRead,
@@ -50,7 +51,14 @@ from app.services.normalization import (
     merge_webhook_with_enrichment,
     normalize_vapi_end_of_call,
 )
-from app.services.practice_directory import get_default_practice, get_practice_by_phone, normalize_phone_number
+from app.services.practice_directory import (
+    evaluate_phone_number_routing,
+    get_active_practice_by_phone,
+    get_default_practice,
+    get_practice_by_phone,
+    normalize_phone_number,
+    parse_debug_time,
+)
 from app.services.platform import ensure_practice_modules, emit_operational_event, upsert_practice_module
 from app.services.vapi_client import fetch_call_details
 from app.services.workflow import (
@@ -146,6 +154,22 @@ def _serialize_call(call: Call) -> CallRead:
 
 def _serialize_practice(practice: Practice) -> PracticeRead:
     return PracticeRead.model_validate(practice, from_attributes=True)
+
+
+def _build_assistant_variables(practice: Practice) -> dict[str, str]:
+    return {
+        "practiceName": practice.practice_name,
+        "officeHours": practice.office_hours,
+        "address": practice.address,
+        "website": practice.website,
+        "emergencyNumber": practice.emergency_number,
+        "servicesSummary": practice.services_summary,
+        "insuranceSummary": practice.insurance_summary,
+        "sameDayEmergencyPolicy": practice.same_day_emergency_policy,
+        "languages": practice.languages,
+        "schedulingMode": practice.scheduling_mode,
+        "insuranceMode": practice.insurance_mode,
+    }
 
 
 def _serialize_integration_setting(setting) -> PracticeIntegrationSettingRead:
@@ -352,32 +376,25 @@ def vapi_assistant_request(
     if message_type and message_type != "assistant-request":
         return {"ok": True, "messageType": message_type}
 
-    called_number, practice = get_practice_by_phone(db, extract_called_number(payload))
+    debug_time = parse_debug_time(
+        payload.get("debug", {}).get("currentTime") if isinstance(payload.get("debug"), dict) else None
+    )
+    called_number, practice, routing_reason = get_active_practice_by_phone(
+        db,
+        extract_called_number(payload),
+        current_time=debug_time,
+    )
     if not practice:
-        practice = get_default_practice(db)
-        if not practice:
-            return {
-                "assistantId": settings.vapi_base_assistant_id,
-                "assistantOverrides": {"variableValues": {}},
-                "debug": {"calledNumber": called_number or "unknown"},
-            }
+        return {
+            "assistantId": settings.vapi_base_assistant_id,
+            "assistantOverrides": {"variableValues": {}},
+            "debug": {"calledNumber": called_number or "unknown", "routingReason": routing_reason},
+        }
 
     return {
         "assistantId": settings.vapi_base_assistant_id,
         "assistantOverrides": {
-            "variableValues": {
-                "practiceName": practice.practice_name,
-                "officeHours": practice.office_hours,
-                "address": practice.address,
-                "website": practice.website,
-                "emergencyNumber": practice.emergency_number,
-                "servicesSummary": practice.services_summary,
-                "insuranceSummary": practice.insurance_summary,
-                "sameDayEmergencyPolicy": practice.same_day_emergency_policy,
-                "languages": practice.languages,
-                "schedulingMode": practice.scheduling_mode,
-                "insuranceMode": practice.insurance_mode,
-            },
+            "variableValues": _build_assistant_variables(practice),
         },
     }
 
@@ -851,14 +868,43 @@ def update_practice_settings(
     practice = db.get(Practice, practice_id)
     if not practice:
         raise HTTPException(status_code=404, detail="Practice not found.")
-    practice.scheduling_mode = payload.scheduling_mode
-    practice.insurance_mode = payload.insurance_mode
-    practice.missed_call_recovery_enabled = payload.missed_call_recovery_enabled
-    practice.missed_call_recovery_message = payload.missed_call_recovery_message
-    practice.callback_sla_minutes = payload.callback_sla_minutes
+    updates = payload.model_dump(exclude_unset=True)
+    for field_name, value in updates.items():
+        setattr(practice, field_name, value)
     db.commit()
     db.refresh(practice)
     return _serialize_practice(practice)
+
+
+@router.get("/practice-settings/{practice_id}/assistant-context", response_model=AssistantContextRead)
+def practice_assistant_context(practice_id: str, current_time: str | None = None, db: Session = Depends(get_db)) -> AssistantContextRead:
+    practice = db.scalar(
+        select(Practice)
+        .options(selectinload(Practice.phone_numbers))
+        .where(Practice.id == practice_id)
+    )
+    if not practice:
+        raise HTTPException(status_code=404, detail="Practice not found.")
+
+    primary_number = next((number for number in practice.phone_numbers if number.is_primary), None)
+    if not primary_number and practice.phone_numbers:
+        primary_number = practice.phone_numbers[0]
+    debug_time = parse_debug_time(current_time)
+    routing_active, routing_reason = (
+        evaluate_phone_number_routing(primary_number, practice, current_time=debug_time)
+        if primary_number
+        else (False, "No managed receptionist number is assigned.")
+    )
+
+    return AssistantContextRead(
+        practice_id=practice.id,
+        practice_name=practice.practice_name,
+        routing_number=primary_number.phone_number if primary_number else None,
+        routing_mode=primary_number.routing_mode if primary_number else None,
+        routing_active=routing_active,
+        routing_reason=routing_reason,
+        variable_values=_build_assistant_variables(practice),
+    )
 
 
 @router.get("/integration-events", response_model=list[IntegrationEventRead])

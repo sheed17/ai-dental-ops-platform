@@ -1,4 +1,5 @@
 import {
+  AssistantContext,
   Call,
   Callback,
   DashboardSummary,
@@ -39,7 +40,18 @@ type BackendPractice = {
   id: string;
   practice_name: string;
   office_hours: string;
+  address: string;
+  website: string;
+  emergency_number: string;
   services_summary: string;
+  insurance_summary: string;
+  same_day_emergency_policy: string;
+  languages: string;
+  scheduling_mode: string;
+  insurance_mode: string;
+  missed_call_recovery_enabled: boolean;
+  missed_call_recovery_message: string | null;
+  callback_sla_minutes: number;
 };
 
 type BackendPhoneNumber = {
@@ -62,6 +74,15 @@ type BackendOperationalEvent = {
   event_name: string;
 };
 
+type BackendCommunicationEvent = {
+  id: string;
+  direction: string;
+  channel: string;
+  counterpart: string | null;
+  body: string | null;
+  created_at: string;
+};
+
 export function mapPractice(practice: BackendPractice, phoneNumbers: BackendPhoneNumber[]): Practice {
   return {
     id: practice.id,
@@ -70,6 +91,54 @@ export function mapPractice(practice: BackendPractice, phoneNumbers: BackendPhon
     hours: practice.office_hours,
     services: practice.services_summary.split(",").map((value) => value.trim()).filter(Boolean),
     locations: phoneNumbers.length || 1,
+    address: practice.address,
+    website: practice.website,
+    emergencyNumber: practice.emergency_number,
+    insuranceSummary: practice.insurance_summary,
+    sameDayEmergencyPolicy: practice.same_day_emergency_policy,
+    languages: practice.languages,
+    schedulingMode: practice.scheduling_mode,
+    insuranceMode: practice.insurance_mode,
+    missedCallRecoveryEnabled: practice.missed_call_recovery_enabled,
+    missedCallRecoveryMessage: practice.missed_call_recovery_message || "",
+    callbackSlaMinutes: practice.callback_sla_minutes,
+  };
+}
+
+export function mapAssistantContext(context: {
+  practice_id: string;
+  practice_name: string;
+  routing_number: string | null;
+  routing_mode: string | null;
+  routing_active: boolean;
+  routing_reason: string;
+  variable_values: Record<string, string>;
+}): AssistantContext {
+  const labelMap: Record<string, string> = {
+    practiceName: "Practice name",
+    officeHours: "Office hours",
+    address: "Address",
+    website: "Website",
+    emergencyNumber: "Emergency number",
+    servicesSummary: "Services summary",
+    insuranceSummary: "Insurance summary",
+    sameDayEmergencyPolicy: "Same-day emergency policy",
+    languages: "Languages",
+    schedulingMode: "Scheduling mode",
+    insuranceMode: "Insurance mode",
+  };
+
+  return {
+    practiceId: context.practice_id,
+    practiceName: context.practice_name,
+    routingNumber: context.routing_number,
+    routingMode: context.routing_mode,
+    routingActive: context.routing_active,
+    routingReason: context.routing_reason,
+    variableValues: Object.entries(context.variable_values).map(([key, value]) => ({
+      label: labelMap[key] || key,
+      value,
+    })),
   };
 }
 
@@ -181,20 +250,30 @@ export function mapCall(call: BackendCall, practiceName: string): Call {
 export function mapCallback(task: {
   id: string;
   callback_name: string | null;
+  callback_phone?: string | null;
   reason: string;
   status: string;
   priority: string;
   created_at: string;
+  assigned_to?: string | null;
+  internal_notes?: string | null;
+  outcome?: string | null;
+  due_note?: string | null;
   practice_id?: string;
 }, practiceName: string): Callback {
   return {
     id: task.id,
     caller: task.callback_name || "Unknown caller",
+    phone: task.callback_phone || "Not captured",
     practice: practiceName,
     reason: task.reason,
     status: task.status === "in_progress" ? "open" : (task.status as Callback["status"]),
     priority: (task.priority === "normal" ? "medium" : task.priority) as Callback["priority"],
     createdAt: task.created_at,
+    assignedTo: task.assigned_to || undefined,
+    internalNotes: task.internal_notes || undefined,
+    outcome: task.outcome || undefined,
+    dueNote: task.due_note || undefined,
   };
 }
 
@@ -204,6 +283,9 @@ export function mapIncident(incident: {
   severity: string;
   status: string;
   summary: string;
+  details?: string | null;
+  created_at?: string;
+  resolved_at?: string | null;
 }, practiceName = "Unknown practice"): Incident {
   return {
     id: incident.id,
@@ -212,6 +294,9 @@ export function mapIncident(incident: {
     severity: (incident.severity === "routine" ? "medium" : incident.severity) as Incident["severity"],
     status: incident.status as Incident["status"],
     summary: incident.summary,
+    details: incident.details || undefined,
+    createdAt: incident.created_at,
+    resolvedAt: incident.resolved_at || null,
   };
 }
 
@@ -245,6 +330,46 @@ export function mapOperationalEvent(event: BackendOperationalEvent): ActivityEve
     practice: event.severity || "System",
     occurredAt: event.created_at,
   };
+}
+
+export function mapCommunicationsToThreads(
+  events: BackendCommunicationEvent[],
+  practiceName: string,
+) {
+  const grouped = new Map<string, Array<BackendCommunicationEvent>>();
+
+  for (const event of events) {
+    const key = event.counterpart || "Unknown contact";
+    const current = grouped.get(key) || [];
+    current.push(event);
+    grouped.set(key, current);
+  }
+
+  return Array.from(grouped.entries()).map(([counterpart, threadEvents]) => ({
+    id: `thread-${counterpart.replaceAll(/\s+/g, "-").toLowerCase()}`,
+    patient: counterpart,
+    phone: counterpart,
+    practice: practiceName,
+    channel: "sms" as const,
+    lastMessageAt: threadEvents
+      .slice()
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]?.created_at,
+    status: threadEvents.some((event) => event.direction === "inbound") ? "needs_reply" as const : "waiting" as const,
+    triggerLabel: "Messaging follow-up",
+    messages: threadEvents
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      .map((event) => ({
+        id: event.id,
+        sender: event.direction === "inbound" ? "patient" as const : "ai" as const,
+        body: event.body || "No message body recorded.",
+        timestamp: new Date(event.created_at).toLocaleString([], {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        }),
+      })),
+  }));
 }
 
 export function mapIntegration(setting: {

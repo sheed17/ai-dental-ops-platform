@@ -14,11 +14,20 @@ class CallbackTaskUpdate(BaseModel):
 
 
 class PracticeSettingsUpdate(BaseModel):
-    scheduling_mode: str
-    insurance_mode: str
-    missed_call_recovery_enabled: bool
+    practice_name: str | None = None
+    office_hours: str | None = None
+    address: str | None = None
+    website: str | None = None
+    emergency_number: str | None = None
+    services_summary: str | None = None
+    insurance_summary: str | None = None
+    same_day_emergency_policy: str | None = None
+    languages: str | None = None
+    scheduling_mode: str | None = None
+    insurance_mode: str | None = None
+    missed_call_recovery_enabled: bool | None = None
     missed_call_recovery_message: str | None = None
-    callback_sla_minutes: int
+    callback_sla_minutes: int | None = None
 
 
 class PracticeRead(BaseModel):
@@ -37,6 +46,16 @@ class PracticeRead(BaseModel):
     missed_call_recovery_enabled: bool
     missed_call_recovery_message: str | None
     callback_sla_minutes: int
+
+
+class AssistantContextRead(BaseModel):
+    practice_id: str
+    practice_name: str
+    routing_number: str | None
+    routing_mode: str | None = None
+    routing_active: bool
+    routing_reason: str
+    variable_values: dict[str, str]
 
 
 class PracticePhoneNumberRead(BaseModel):

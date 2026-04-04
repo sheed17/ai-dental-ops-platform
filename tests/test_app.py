@@ -102,6 +102,15 @@ def test_practice_settings_can_be_updated(client):
     response = client.patch(
         f"/api/v1/practice-settings/{practice_id}",
         json={
+            "practice_name": "Sunrise Dental Studio",
+            "office_hours": "Mon-Thu 8am-6pm, Fri 8am-2pm",
+            "address": "123 Main St, San Jose, CA",
+            "website": "https://sunrisedental.example.com",
+            "emergency_number": "+14085550199",
+            "services_summary": "General dentistry, implants, emergency visits",
+            "insurance_summary": "We accept most PPO plans and confirm details with the office.",
+            "same_day_emergency_policy": "Urgent pain or swelling should be escalated for same-day review.",
+            "languages": "English, Spanish",
             "scheduling_mode": "availability_assist",
             "insurance_mode": "plan_lookup",
             "missed_call_recovery_enabled": True,
@@ -112,9 +121,102 @@ def test_practice_settings_can_be_updated(client):
 
     assert response.status_code == 200
     updated = response.json()
+    assert updated["practice_name"] == "Sunrise Dental Studio"
+    assert updated["office_hours"] == "Mon-Thu 8am-6pm, Fri 8am-2pm"
+    assert updated["website"] == "https://sunrisedental.example.com"
     assert updated["scheduling_mode"] == "availability_assist"
     assert updated["insurance_mode"] == "plan_lookup"
     assert updated["callback_sla_minutes"] == 30
+
+
+def test_practice_assistant_context_returns_live_variable_values(client):
+    practice_id = client.get("/api/v1/practice-settings").json()[0]["id"]
+
+    response = client.get(f"/api/v1/practice-settings/{practice_id}/assistant-context")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["practice_id"] == practice_id
+    assert payload["routing_number"] == "+12282832484"
+    assert payload["routing_mode"] == "always_forward"
+    assert payload["routing_active"] is True
+    assert payload["variable_values"]["practiceName"] == "Bright Smile Dental"
+    assert payload["variable_values"]["officeHours"]
+
+
+def test_assistant_request_respects_after_hours_only_routing(client):
+    practice_id = client.get("/api/v1/practice-settings").json()[0]["id"]
+    phone_numbers = client.get(f"/api/v1/practices/{practice_id}/phone-numbers").json()
+    primary_number = phone_numbers[0]
+
+    update_response = client.put(
+        f"/api/v1/practices/{practice_id}/phone-numbers/{primary_number['id']}",
+        json={
+            "label": primary_number["label"],
+            "is_primary": True,
+            "routing_mode": "after_hours_only",
+            "forward_to_number": primary_number["forward_to_number"],
+            "voice_enabled": True,
+            "sms_enabled": True,
+        },
+    )
+    assert update_response.status_code == 200
+
+    business_hours_response = client.post(
+        "/api/v1/vapi/assistant-request",
+        json={
+            "message": {
+                "type": "assistant-request",
+                "call": {"phoneNumber": {"number": "+12282832484"}},
+            },
+            "debug": {"currentTime": "2026-04-03T14:00:00-07:00"},
+        },
+    )
+    assert business_hours_response.status_code == 200
+    business_hours_payload = business_hours_response.json()
+    assert business_hours_payload["assistantOverrides"]["variableValues"] == {}
+    assert "wait until the practice is closed" in business_hours_payload["debug"]["routingReason"]
+
+    after_hours_response = client.post(
+        "/api/v1/vapi/assistant-request",
+        json={
+            "message": {
+                "type": "assistant-request",
+                "call": {"phoneNumber": {"number": "+12282832484"}},
+            },
+            "debug": {"currentTime": "2026-04-03T21:00:00-07:00"},
+        },
+    )
+    assert after_hours_response.status_code == 200
+    after_hours_payload = after_hours_response.json()
+    assert after_hours_payload["assistantOverrides"]["variableValues"]["practiceName"] == "Bright Smile Dental"
+
+
+def test_assistant_context_reports_routing_activity_for_simulated_time(client):
+    practice_id = client.get("/api/v1/practice-settings").json()[0]["id"]
+    phone_numbers = client.get(f"/api/v1/practices/{practice_id}/phone-numbers").json()
+    primary_number = phone_numbers[0]
+
+    client.put(
+        f"/api/v1/practices/{practice_id}/phone-numbers/{primary_number['id']}",
+        json={
+            "label": primary_number["label"],
+            "is_primary": True,
+            "routing_mode": "after_hours_only",
+            "forward_to_number": primary_number["forward_to_number"],
+            "voice_enabled": True,
+            "sms_enabled": True,
+        },
+    )
+
+    response = client.get(
+        f"/api/v1/practice-settings/{practice_id}/assistant-context",
+        params={"current_time": "2026-04-03T14:00:00-07:00"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["routing_active"] is False
+    assert payload["routing_mode"] == "after_hours_only"
 
 
 def test_integration_catalog_and_practice_settings_surface_connectors(client):
