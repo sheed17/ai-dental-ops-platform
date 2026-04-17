@@ -182,84 +182,6 @@ At a high level:
 - `POST /api/v1/practices/{practice_id}/phone-numbers`
 - `GET /api/v1/practices/{practice_id}/routing-rules`
 
-## Local Development
-
-### Backend
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn app.main:app --reload
-```
-
-Default local backend:
-
-- API: `http://localhost:8000`
-
-### Worker
-
-Run the automation worker in a separate terminal:
-
-```bash
-python3 -m app.worker
-```
-
-Recommended production process model:
-
-- `web` process for FastAPI
-- `worker` process for queued integrations and automation recovery
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Default local frontend:
-
-- App: `http://localhost:3000`
-
-## Environment Variables
-
-Key backend variables:
-
-- `APP_ENV`
-- `PORT`
-- `DATABASE_URL`
-- `VAPI_BASE_ASSISTANT_ID`
-- `VAPI_API_TOKEN`
-- `VAPI_API_BASE_URL`
-- `VAPI_WEBHOOK_SECRET`
-- `TWILIO_ACCOUNT_SID`
-- `TWILIO_AUTH_TOKEN`
-- `TWILIO_MESSAGING_SERVICE_SID`
-- `TWILIO_FROM_NUMBER`
-- `SEED_DEMO_DATA`
-- `AUTOMATION_POLL_INTERVAL_SECONDS`
-- `AUTOMATION_RUN_ON_STARTUP`
-
-## Testing
-
-Run the backend test suite with:
-
-```bash
-pytest
-```
-
-The tests cover core workflows such as:
-
-- assistant request routing
-- end-of-call normalization
-- callback and incident creation
-- integration queue behavior
-- Twilio inbound messaging
-- dashboard summary behavior
-- practice setup and routing configuration
-
 ## Legal Pages
 
 This repo includes public legal pages in [`docs/`](/Users/sammyfammy/Downloads/dental-ops-platform/docs):
@@ -277,4 +199,3 @@ If GitHub Pages is enabled from `docs/` on `main`, the public URLs will be:
 If someone lands on this repository from a GitHub profile, the best way to think about it is:
 
 This is an AI-powered dental operations system for after-hours patient communication, callback management, and internal workflow automation.
-
